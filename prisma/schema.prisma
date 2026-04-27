@@ -1,0 +1,911 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["partialIndexes"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email         String          @unique(map: "uq_users_email")
+  passwordHash  String          @map("password_hash")
+  displayName   String?         @map("display_name")
+  isActive      Boolean         @default(true) @map("is_active")
+  createdAt     DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  brokerAccounts BrokerAccount[]
+  preference     UserPreference?
+  sessions       Session[]
+
+  @@map("users")
+}
+
+model UserPreference {
+  id                    String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                String         @unique(map: "uq_user_preferences_user_id") @map("user_id") @db.Uuid
+  themeMode             ThemeMode      @default(LIGHT) @map("theme_mode")
+  activeBrokerAccountId String?        @map("active_broker_account_id") @db.Uuid
+  createdAt             DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user                User           @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  activeBrokerAccount BrokerAccount? @relation(fields: [activeBrokerAccountId], references: [id], onUpdate: NoAction)
+
+  @@index([activeBrokerAccountId], map: "idx_user_preferences_active_broker_account_id")
+  @@map("user_preferences")
+}
+
+model Session {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  sessionToken String   @unique(map: "uq_sessions_session_token") @map("session_token")
+  expiresAt    DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([expiresAt], map: "idx_sessions_expires_at")
+  @@index([userId], map: "idx_sessions_user_id")
+  @@map("sessions")
+}
+
+model Broker {
+  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  brokerCode  BrokerCode @unique(map: "uq_brokers_broker_code") @map("broker_code")
+  brokerName  String     @map("broker_name")
+  countryCode String?    @map("country_code")
+  websiteUrl  String?    @map("website_url")
+  notes       String?
+  createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  accounts BrokerAccount[]
+
+  @@map("brokers")
+}
+
+model BrokerAccount {
+  id                         String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  brokerId                   String              @map("broker_id") @db.Uuid
+  userId                     String?             @map("user_id") @db.Uuid
+  accountName                String              @map("account_name")
+  accountType                BrokerAccountType   @default(OTHER) @map("account_type")
+  accountNumberMasked        String?             @map("account_number_masked")
+  baseCurrency               String              @default("USD") @map("base_currency")
+  isActive                   Boolean             @default(true) @map("is_active")
+  openedAt                   DateTime?           @map("opened_at") @db.Timestamptz(6)
+  closedAt                   DateTime?           @map("closed_at") @db.Timestamptz(6)
+  notes                      String?
+  createdAt                  DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                  DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  broker                     Broker                 @relation(fields: [brokerId], references: [id], onUpdate: NoAction)
+  user                       User?                  @relation(fields: [userId], references: [id], onUpdate: NoAction)
+  positions                  Position[]
+  holdings                   Holding[]
+  executions                 Execution[]
+  importBatches              ImportBatch[]
+  orders                     Order[]
+  rawTransactions            RawTransaction[]
+  activeUserPreferences      UserPreference[]
+
+  @@index([isActive], map: "idx_broker_accounts_active")
+  @@index([brokerId], map: "idx_broker_accounts_broker_id")
+  @@index([userId], map: "idx_broker_accounts_user_id")
+  @@map("broker_accounts")
+}
+
+model Position {
+  id              String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sourceType      PositionSourceType @default(MANUAL) @map("source_type")
+  assetClass      AssetClass         @map("asset_class")
+  strategyType    StrategyType       @map("strategy_type")
+  directionBias   DirectionBias?     @map("direction_bias")
+  brokerAccountId String?            @map("broker_account_id") @db.Uuid
+  underlyingSymbol String            @map("underlying_symbol")
+  positionTitle   String?            @map("position_title")
+  thesis          String?
+  entryPlan       String?            @map("entry_plan")
+  exitPlan        String?            @map("exit_plan")
+  openedAt        DateTime           @map("opened_at") @db.Timestamptz(6)
+  closedAt        DateTime?          @map("closed_at") @db.Timestamptz(6)
+  currentStatus   PositionStatus     @default(OPEN) @map("current_status")
+  isWheelRelated  Boolean            @default(false) @map("is_wheel_related")
+  linkedHoldingId String?            @map("linked_holding_id") @db.Uuid
+  tradeNotes      String?            @map("trade_notes")
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  brokerAccount BrokerAccount? @relation(fields: [brokerAccountId], references: [id], onUpdate: NoAction)
+  linkedHolding Holding?       @relation("PositionLinkedHolding", fields: [linkedHoldingId], references: [id], onUpdate: NoAction, map: "fk_positions_linked_holding")
+
+  attachments       Attachment[]
+  cashLedgerEntries CashLedger[]
+  executionLinks    ExecutionLink[]
+  sourceHoldings    Holding[]       @relation("HoldingLinkedPosition")
+  journalEntry      JournalEntry?
+  actions           PositionAction[]
+  legs              PositionLeg[]
+  notes             PositionNote[]
+  tagLinks          TagLink[]
+
+  @@index([currentStatus], map: "idx_positions_current_status")
+  @@index([openedAt(sort: Desc)], map: "idx_positions_opened_at_desc")
+  @@index([strategyType], map: "idx_positions_strategy_type")
+  @@index([underlyingSymbol, currentStatus], map: "idx_positions_underlying_status")
+  @@index([underlyingSymbol], map: "idx_positions_underlying_symbol")
+  @@map("positions")
+}
+
+model PositionLeg {
+  id               String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  positionId       String       @map("position_id") @db.Uuid
+  legType          LegType      @map("leg_type")
+  legSide          LegSide      @map("leg_side")
+  optionType       OptionType?  @map("option_type")
+  optionStyle      OptionStyle? @map("option_style")
+  underlyingSymbol String       @map("underlying_symbol")
+  expiryDate       DateTime?    @map("expiry_date") @db.Date
+  strikePrice      Decimal?     @map("strike_price") @db.Decimal(18, 4)
+  quantity         Decimal      @db.Decimal(18, 4)
+  multiplier       Decimal      @default(1) @db.Decimal(18, 4)
+  legRole          String?      @map("leg_role")
+  openedAt         DateTime     @map("opened_at") @db.Timestamptz(6)
+  closedAt         DateTime?    @map("closed_at") @db.Timestamptz(6)
+  legStatus        LegStatus    @default(OPEN) @map("leg_status")
+  parentLegId      String?      @map("parent_leg_id") @db.Uuid
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  position              Position          @relation(fields: [positionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  parentLeg             PositionLeg?      @relation("PositionLegHierarchy", fields: [parentLegId], references: [id], onUpdate: NoAction)
+  childLegs             PositionLeg[]     @relation("PositionLegHierarchy")
+  actionLegChangesAsNew ActionLegChange[] @relation("ActionLegChangeNewLeg")
+  actionLegChangesAsOld ActionLegChange[] @relation("ActionLegChangeOldLeg")
+  executionLinks        ExecutionLink[]
+
+  @@index([expiryDate, strikePrice], map: "idx_position_legs_expiry_strike")
+  @@index([positionId], map: "idx_position_legs_position_id")
+  @@index([positionId, legStatus], map: "idx_position_legs_position_status")
+  @@index([underlyingSymbol], map: "idx_position_legs_underlying_symbol")
+  @@map("position_legs")
+}
+
+model PositionAction {
+  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  positionId       String             @map("position_id") @db.Uuid
+  actionTimestamp  DateTime           @map("action_timestamp") @db.Timestamptz(6)
+  actionType       PositionActionType @map("action_type")
+  actionEffect     ActionEffectType   @map("action_effect")
+  amount           Decimal?           @db.Decimal(18, 4)
+  feeAmount        Decimal            @default(0) @map("fee_amount") @db.Decimal(18, 4)
+  currency         String             @default("USD")
+  quantity         Decimal?           @db.Decimal(18, 4)
+  premiumPerUnit   Decimal?           @map("premium_per_unit") @db.Decimal(18, 4)
+  resultingStatus  PositionStatus?    @map("resulting_status")
+  disciplineRating DisciplineRating   @default(UNRATED) @map("discipline_rating")
+  notes            String?
+  brokerReference  String?            @map("broker_reference")
+  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  position         Position          @relation(fields: [positionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  actionLegChanges ActionLegChange[]
+  executionLinks   ExecutionLink[]
+  holdingEvents    HoldingEvent[]
+
+  @@index([actionTimestamp(sort: Desc)], map: "idx_position_actions_action_timestamp_desc")
+  @@index([actionType], map: "idx_position_actions_action_type")
+  @@index([positionId], map: "idx_position_actions_position_id")
+  @@index([positionId, actionTimestamp], map: "idx_position_actions_position_timestamp")
+  @@map("position_actions")
+}
+
+model ActionLegChange {
+  id               String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  positionActionId String              @map("position_action_id") @db.Uuid
+  oldLegId         String?             @map("old_leg_id") @db.Uuid
+  newLegId         String?             @map("new_leg_id") @db.Uuid
+  changeType       ActionLegChangeType @map("change_type")
+  quantityChanged  Decimal?            @map("quantity_changed") @db.Decimal(18, 4)
+  notes            String?
+  createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  positionAction PositionAction @relation(fields: [positionActionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  oldLeg         PositionLeg?   @relation("ActionLegChangeOldLeg", fields: [oldLegId], references: [id], onUpdate: NoAction)
+  newLeg         PositionLeg?   @relation("ActionLegChangeNewLeg", fields: [newLegId], references: [id], onUpdate: NoAction)
+
+  @@index([newLegId], map: "idx_action_leg_changes_new_leg_id")
+  @@index([oldLegId], map: "idx_action_leg_changes_old_leg_id")
+  @@index([positionActionId], map: "idx_action_leg_changes_position_action_id")
+  @@map("action_leg_changes")
+}
+
+model Attachment {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  positionId     String?       @map("position_id") @db.Uuid
+  journalEntryId String?       @map("journal_entry_id") @db.Uuid
+  fileName       String        @map("file_name")
+  filePath       String        @map("file_path")
+  mimeType       String?       @map("mime_type")
+  fileSizeBytes  BigInt?       @map("file_size_bytes")
+  caption        String?
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  journalEntry JournalEntry? @relation(fields: [journalEntryId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  position     Position?     @relation(fields: [positionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([journalEntryId], map: "idx_attachments_journal_entry_id")
+  @@index([positionId], map: "idx_attachments_position_id")
+  @@map("attachments")
+}
+
+model CashLedger {
+  id                String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  brokerAccountId   String?     @map("broker_account_id") @db.Uuid
+  txnTimestamp      DateTime    @map("txn_timestamp") @db.Timestamptz(6)
+  txnType           CashTxnType @map("txn_type")
+  amount            Decimal     @db.Decimal(18, 4)
+  currency          String      @default("USD")
+  linkedPositionId  String?     @map("linked_position_id") @db.Uuid
+  linkedHoldingId   String?     @map("linked_holding_id") @db.Uuid
+  description       String?
+  externalReference String?     @map("external_reference")
+  createdAt         DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  linkedHolding  Holding?  @relation(fields: [linkedHoldingId], references: [id], onUpdate: NoAction)
+  linkedPosition Position? @relation(fields: [linkedPositionId], references: [id], onUpdate: NoAction)
+
+  @@index([brokerAccountId], map: "idx_cash_ledger_broker_account_id")
+  @@index([linkedHoldingId], map: "idx_cash_ledger_linked_holding_id")
+  @@index([linkedPositionId], map: "idx_cash_ledger_linked_position_id")
+  @@index([txnTimestamp(sort: Desc)], map: "idx_cash_ledger_txn_timestamp_desc")
+  @@index([txnType], map: "idx_cash_ledger_txn_type")
+  @@map("cash_ledger")
+}
+
+model ExecutionLink {
+  id               String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  executionId      String                  @map("execution_id") @db.Uuid
+  targetType       ExecutionLinkTargetType @map("target_type")
+  positionId       String?                 @map("position_id") @db.Uuid
+  positionLegId    String?                 @map("position_leg_id") @db.Uuid
+  positionActionId String?                 @map("position_action_id") @db.Uuid
+  holdingId        String?                 @map("holding_id") @db.Uuid
+  holdingEventId   String?                 @map("holding_event_id") @db.Uuid
+  linkNotes        String?                 @map("link_notes")
+  confidenceScore  Decimal?                @map("confidence_score") @db.Decimal(5, 2)
+  createdAt        DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  execution      Execution       @relation(fields: [executionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  holdingEvent   HoldingEvent?   @relation(fields: [holdingEventId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  holding        Holding?        @relation(fields: [holdingId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  positionAction PositionAction? @relation(fields: [positionActionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  position       Position?       @relation(fields: [positionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  positionLeg    PositionLeg?    @relation(fields: [positionLegId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([executionId], map: "idx_execution_links_execution_id")
+  @@index([holdingEventId], map: "idx_execution_links_holding_event_id")
+  @@index([holdingId], map: "idx_execution_links_holding_id")
+  @@index([positionActionId], map: "idx_execution_links_position_action_id")
+  @@index([positionId], map: "idx_execution_links_position_id")
+  @@index([positionLegId], map: "idx_execution_links_position_leg_id")
+  @@index([targetType], map: "idx_execution_links_target_type")
+  @@map("execution_links")
+}
+
+model Execution {
+  id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  brokerAccountId    String?            @map("broker_account_id") @db.Uuid
+  importBatchId      String?            @map("import_batch_id") @db.Uuid
+  rawTransactionId   String?            @map("raw_transaction_id") @db.Uuid
+  orderId            String?            @map("order_id") @db.Uuid
+  executionTimestamp DateTime           @map("execution_timestamp") @db.Timestamptz(6)
+  brokerExecutionId  String?            @map("broker_execution_id")
+  brokerOrderId      String?            @map("broker_order_id")
+  underlyingSymbol   String             @map("underlying_symbol")
+  instrumentSymbol   String?            @map("instrument_symbol")
+  assetClass         AssetClass         @map("asset_class")
+  optionType         OptionType?        @map("option_type")
+  optionStyle        OptionStyle?       @map("option_style")
+  expiryDate         DateTime?          @map("expiry_date") @db.Date
+  strikePrice        Decimal?           @map("strike_price") @db.Decimal(18, 4)
+  side               ExecutionSide
+  openClose          ExecutionOpenClose @default(UNKNOWN) @map("open_close")
+  quantity           Decimal            @db.Decimal(18, 4)
+  multiplier         Decimal            @default(1) @db.Decimal(18, 4)
+  price              Decimal?           @db.Decimal(18, 4)
+  grossAmount        Decimal?           @map("gross_amount") @db.Decimal(18, 4)
+  feeAmount          Decimal            @default(0) @map("fee_amount") @db.Decimal(18, 4)
+  netAmount          Decimal?           @map("net_amount") @db.Decimal(18, 4)
+  currency           String             @default("USD")
+  descriptionText    String?            @map("description_text")
+  executionNotes     String?            @map("execution_notes")
+  createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime           @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  executionLinks ExecutionLink[]
+  brokerAccount  BrokerAccount?  @relation(fields: [brokerAccountId], references: [id], onUpdate: NoAction)
+  importBatch    ImportBatch?    @relation(fields: [importBatchId], references: [id], onUpdate: NoAction)
+  order          Order?          @relation(fields: [orderId], references: [id], onUpdate: NoAction)
+  rawTransaction RawTransaction? @relation(fields: [rawTransactionId], references: [id], onUpdate: NoAction)
+
+  @@unique([brokerAccountId, brokerExecutionId], map: "uq_executions_account_broker_execution", where: raw("(broker_execution_id IS NOT NULL)"))
+  @@index([assetClass], map: "idx_executions_asset_class")
+  @@index([brokerAccountId], map: "idx_executions_broker_account_id")
+  @@index([executionTimestamp(sort: Desc)], map: "idx_executions_execution_timestamp_desc")
+  @@index([expiryDate, strikePrice], map: "idx_executions_expiry_strike")
+  @@index([importBatchId], map: "idx_executions_import_batch_id")
+  @@index([openClose], map: "idx_executions_open_close")
+  @@index([orderId], map: "idx_executions_order_id")
+  @@index([rawTransactionId], map: "idx_executions_raw_transaction_id")
+  @@index([side], map: "idx_executions_side")
+  @@index([underlyingSymbol], map: "idx_executions_underlying_symbol")
+  @@map("executions")
+}
+
+model HoldingEvent {
+  id                     String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  holdingId              String           @map("holding_id") @db.Uuid
+  eventTimestamp         DateTime         @map("event_timestamp") @db.Timestamptz(6)
+  eventType              HoldingEventType @map("event_type")
+  quantity               Decimal?         @db.Decimal(18, 4)
+  pricePerShare          Decimal?         @map("price_per_share") @db.Decimal(18, 4)
+  amount                 Decimal?         @db.Decimal(18, 4)
+  feeAmount              Decimal          @default(0) @map("fee_amount") @db.Decimal(18, 4)
+  currency               String           @default("USD")
+  linkedPositionActionId String?          @map("linked_position_action_id") @db.Uuid
+  notes                  String?
+  createdAt              DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  executionLinks ExecutionLink[]
+  holding        Holding         @relation(fields: [holdingId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  positionAction PositionAction? @relation(fields: [linkedPositionActionId], references: [id], onUpdate: NoAction)
+
+  @@index([eventTimestamp(sort: Desc)], map: "idx_holding_events_event_timestamp_desc")
+  @@index([eventType], map: "idx_holding_events_event_type")
+  @@index([holdingId], map: "idx_holding_events_holding_id")
+  @@index([linkedPositionActionId], map: "idx_holding_events_linked_position_action_id")
+  @@map("holding_events")
+}
+
+model Holding {
+  id                  String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  brokerAccountId     String?           @map("broker_account_id") @db.Uuid
+  sourceType          HoldingSourceType @map("source_type")
+  symbol              String
+  quantity            Decimal           @db.Decimal(18, 4)
+  openQuantity        Decimal           @map("open_quantity") @db.Decimal(18, 4)
+  remainingQuantity   Decimal           @map("remaining_quantity") @db.Decimal(18, 4)
+  costBasisPerShare   Decimal           @map("cost_basis_per_share") @db.Decimal(18, 4)
+  openedAt            DateTime          @map("opened_at") @db.Timestamptz(6)
+  closedAt            DateTime?         @map("closed_at") @db.Timestamptz(6)
+  holdingStatus       HoldingStatus     @default(OPEN) @map("holding_status")
+  linkedPositionId    String?           @map("linked_position_id") @db.Uuid
+  notes               String?
+  createdAt           DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime          @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  cashLedgerEntries   CashLedger[]
+  executionLinks      ExecutionLink[]
+  holdingEvents       HoldingEvent[]
+  brokerAccount       BrokerAccount? @relation(fields: [brokerAccountId], references: [id], onUpdate: NoAction)
+  linkedPosition      Position?      @relation("HoldingLinkedPosition", fields: [linkedPositionId], references: [id], onUpdate: NoAction)
+  linkedFromPositions Position[]     @relation("PositionLinkedHolding")
+
+  @@index([holdingStatus], map: "idx_holdings_holding_status")
+  @@index([linkedPositionId], map: "idx_holdings_linked_position_id")
+  @@index([symbol], map: "idx_holdings_symbol")
+  @@index([symbol, holdingStatus], map: "idx_holdings_symbol_status")
+  @@map("holdings")
+}
+
+model ImportBatch {
+  id              String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  brokerAccountId String?           @map("broker_account_id") @db.Uuid
+  sourceType      ImportSourceType  @map("source_type")
+  batchStatus     ImportBatchStatus @default(PENDING) @map("batch_status")
+  importLabel     String?           @map("import_label")
+  fileName        String?           @map("file_name")
+  fileHash        String?           @map("file_hash")
+  rawStoragePath  String?           @map("raw_storage_path")
+  parserVersion   String?           @map("parser_version")
+  rowCount        Int?              @map("row_count")
+  processedCount  Int?              @map("processed_count")
+  errorCount      Int?              @map("error_count")
+  importedAt      DateTime          @default(now()) @map("imported_at") @db.Timestamptz(6)
+  completedAt     DateTime?         @map("completed_at") @db.Timestamptz(6)
+  notes           String?
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime          @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  executions      Execution[]
+  brokerAccount   BrokerAccount?  @relation(fields: [brokerAccountId], references: [id], onUpdate: NoAction)
+  orders          Order[]
+  rawTransactions RawTransaction[]
+
+  @@unique([brokerAccountId, fileHash], map: "uq_import_batches_file_hash_per_account", where: raw("(file_hash IS NOT NULL)"))
+  @@index([brokerAccountId], map: "idx_import_batches_broker_account_id")
+  @@index([importedAt(sort: Desc)], map: "idx_import_batches_imported_at_desc")
+  @@index([batchStatus], map: "idx_import_batches_status")
+  @@map("import_batches")
+}
+
+model JournalEntry {
+  id               String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  positionId       String       @unique @map("position_id") @db.Uuid
+  setupName        String?      @map("setup_name")
+  marketContext    String?      @map("market_context")
+  entryReason      String?      @map("entry_reason")
+  exitReason       String?      @map("exit_reason")
+  mistakes         String?
+  lessonsLearned   String?      @map("lessons_learned")
+  emotions         String?
+  confidenceRating Int?         @map("confidence_rating") @db.SmallInt
+  executionRating  Int?         @map("execution_rating") @db.SmallInt
+  planRating       Int?         @map("plan_rating") @db.SmallInt
+  journalNote      String?      @map("journal_note")
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime     @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  attachments Attachment[]
+  position    Position     @relation(fields: [positionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tagLinks    TagLink[]
+
+  @@map("journal_entries")
+}
+
+model Order {
+  id                  String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  brokerAccountId     String?        @map("broker_account_id") @db.Uuid
+  importBatchId       String?        @map("import_batch_id") @db.Uuid
+  rawTransactionId    String?        @map("raw_transaction_id") @db.Uuid
+  brokerOrderId       String?        @map("broker_order_id")
+  brokerParentOrderId String?        @map("broker_parent_order_id")
+  placedAt            DateTime?      @map("placed_at") @db.Timestamptz(6)
+  submittedAt         DateTime?      @map("submitted_at") @db.Timestamptz(6)
+  filledAt            DateTime?      @map("filled_at") @db.Timestamptz(6)
+  cancelledAt         DateTime?      @map("cancelled_at") @db.Timestamptz(6)
+  underlyingSymbol    String?        @map("underlying_symbol")
+  orderSide           ExecutionSide? @map("order_side")
+  orderType           String?        @map("order_type")
+  timeInForce         String?        @map("time_in_force")
+  quantity            Decimal?       @db.Decimal(18, 4)
+  limitPrice          Decimal?       @map("limit_price") @db.Decimal(18, 4)
+  stopPrice           Decimal?       @map("stop_price") @db.Decimal(18, 4)
+  statusText          String?        @map("status_text")
+  currency            String?
+  notes               String?
+  createdAt           DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime       @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  executions     Execution[]
+  brokerAccount  BrokerAccount?  @relation(fields: [brokerAccountId], references: [id], onUpdate: NoAction)
+  importBatch    ImportBatch?    @relation(fields: [importBatchId], references: [id], onUpdate: NoAction)
+  rawTransaction RawTransaction? @relation(fields: [rawTransactionId], references: [id], onUpdate: NoAction)
+
+  @@unique([brokerAccountId, brokerOrderId], map: "uq_orders_account_broker_order", where: raw("(broker_order_id IS NOT NULL)"))
+  @@index([brokerAccountId], map: "idx_orders_broker_account_id")
+  @@index([brokerOrderId], map: "idx_orders_broker_order_id")
+  @@index([importBatchId], map: "idx_orders_import_batch_id")
+  @@index([placedAt(sort: Desc)], map: "idx_orders_placed_at_desc")
+  @@index([rawTransactionId], map: "idx_orders_raw_transaction_id")
+  @@index([underlyingSymbol], map: "idx_orders_underlying_symbol")
+  @@map("orders")
+}
+
+model PositionNote {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  positionId    String   @map("position_id") @db.Uuid
+  noteTimestamp DateTime @default(now()) @map("note_timestamp") @db.Timestamptz(6)
+  noteText      String   @map("note_text")
+  noteType      String   @default("GENERAL") @map("note_type")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  position Position @relation(fields: [positionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([noteTimestamp(sort: Desc)], map: "idx_position_notes_note_timestamp_desc")
+  @@index([positionId], map: "idx_position_notes_position_id")
+  @@map("position_notes")
+}
+
+model RawTransaction {
+  id                  String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  importBatchId       String?            @map("import_batch_id") @db.Uuid
+  brokerAccountId     String?            @map("broker_account_id") @db.Uuid
+  rawTxnType          RawTransactionType @default(OTHER) @map("raw_txn_type")
+  brokerTransactionId String?            @map("broker_transaction_id")
+  brokerOrderId       String?            @map("broker_order_id")
+  eventTimestamp      DateTime?          @map("event_timestamp") @db.Timestamptz(6)
+  symbolText          String?            @map("symbol_text")
+  descriptionText     String?            @map("description_text")
+  amount              Decimal?           @db.Decimal(18, 4)
+  quantity            Decimal?           @db.Decimal(18, 4)
+  price               Decimal?           @db.Decimal(18, 4)
+  feeAmount           Decimal?           @map("fee_amount") @db.Decimal(18, 4)
+  netAmount           Decimal?           @map("net_amount") @db.Decimal(18, 4)
+  currency            String?
+  rawPayload          Json               @map("raw_payload")
+  processingNotes     String?            @map("processing_notes")
+  createdAt           DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  executions     Execution[]
+  orders         Order[]
+  brokerAccount  BrokerAccount? @relation(fields: [brokerAccountId], references: [id], onUpdate: NoAction)
+  importBatch    ImportBatch?   @relation(fields: [importBatchId], references: [id], onUpdate: NoAction)
+
+  @@index([brokerAccountId], map: "idx_raw_transactions_broker_account_id")
+  @@index([brokerTransactionId], map: "idx_raw_transactions_broker_transaction_id")
+  @@index([eventTimestamp(sort: Desc)], map: "idx_raw_transactions_event_timestamp_desc")
+  @@index([importBatchId], map: "idx_raw_transactions_import_batch_id")
+  @@index([rawTxnType], map: "idx_raw_transactions_type")
+  @@map("raw_transactions")
+}
+
+model TagLink {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tagId          String   @map("tag_id") @db.Uuid
+  positionId     String?  @map("position_id") @db.Uuid
+  journalEntryId String?  @map("journal_entry_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  journalEntry JournalEntry? @relation(fields: [journalEntryId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  position     Position?     @relation(fields: [positionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tag          Tag           @relation(fields: [tagId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tagId, journalEntryId], map: "uq_tag_links_journal_target", where: raw("(journal_entry_id IS NOT NULL)"))
+  @@unique([tagId, positionId], map: "uq_tag_links_position_target", where: raw("(position_id IS NOT NULL)"))
+  @@index([journalEntryId], map: "idx_tag_links_journal_entry_id")
+  @@index([positionId], map: "idx_tag_links_position_id")
+  @@index([tagId], map: "idx_tag_links_tag_id")
+  @@map("tag_links")
+}
+
+model Tag {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tagName     String   @map("tag_name")
+  tagCategory String?  @map("tag_category")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tagLinks TagLink[]
+
+  @@map("tags")
+}
+enum ActionEffectType {
+  OPEN
+  CLOSE
+  REDUCE
+  INCREASE
+  REPLACE
+  ROLL
+  EXPIRE
+  ASSIGN
+  EXERCISE
+  ADJUST
+  INCOME
+  EXPENSE
+  NOTE_ONLY
+
+  @@map("action_effect_type")
+}
+
+enum ActionLegChangeType {
+  OPEN
+  CLOSE
+  REPLACE
+  REDUCE
+  INCREASE
+  EXPIRE
+  ASSIGN
+  EXERCISE
+
+  @@map("action_leg_change_type")
+}
+
+enum AssetClass {
+  STOCK
+  OPTION
+  MIXED
+  CASH
+  OTHER
+
+  @@map("asset_class")
+}
+
+enum BrokerAccountType {
+  CASH
+  MARGIN
+  PAPER
+  RETIREMENT
+  OTHER
+
+  @@map("broker_account_type")
+}
+
+enum BrokerCode {
+  MOOMOO
+  TIGER
+  IBKR
+  TASTYTRADE
+  WEBULL
+  MANUAL
+  OTHER
+
+  @@map("broker_code")
+}
+
+enum CashTxnType {
+  DEPOSIT
+  WITHDRAWAL
+  DIVIDEND
+  INTEREST
+  FEE
+  COMMISSION
+  TAX
+  TRANSFER_IN
+  TRANSFER_OUT
+  ADJUSTMENT
+  OTHER
+
+  @@map("cash_txn_type")
+}
+
+enum DirectionBias {
+  BULLISH
+  BEARISH
+  NEUTRAL
+  INCOME
+  VOLATILITY
+  CUSTOM
+
+  @@map("direction_bias")
+}
+
+enum DisciplineRating {
+  FOLLOWED_PLAN
+  ADJUSTED
+  BROKE_RULES
+  UNRATED
+
+  @@map("discipline_rating")
+}
+
+enum ExecutionLinkTargetType {
+  POSITION
+  POSITION_LEG
+  POSITION_ACTION
+  HOLDING
+  HOLDING_EVENT
+
+  @@map("execution_link_target_type")
+}
+
+enum ExecutionOpenClose {
+  OPEN
+  CLOSE
+  UNKNOWN
+
+  @@map("execution_open_close")
+}
+
+enum ExecutionSide {
+  BUY
+  SELL
+
+  @@map("execution_side")
+}
+
+enum HoldingEventType {
+  ACQUIRED
+  SOLD
+  PARTIAL_SELL
+  CALLED_AWAY
+  DIVIDEND
+  SPLIT
+  MERGER
+  TRANSFER_IN
+  TRANSFER_OUT
+  ADJUSTMENT
+  NOTE
+
+  @@map("holding_event_type")
+}
+
+enum HoldingSourceType {
+  MANUAL_BUY
+  ASSIGNED_FROM_PUT
+  EXERCISED_FROM_CALL
+  TRANSFER_IN
+  CORPORATE_ACTION
+  OTHER
+
+  @@map("holding_source_type")
+}
+
+enum HoldingStatus {
+  OPEN
+  PARTIALLY_SOLD
+  CLOSED
+  CALLED_AWAY
+  TRANSFERRED_OUT
+  ARCHIVED
+
+  @@map("holding_status")
+}
+
+enum ImportBatchStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  PARTIAL
+  FAILED
+  CANCELLED
+
+  @@map("import_batch_status")
+}
+
+enum ImportSourceType {
+  CSV
+  PDF
+  API
+  MANUAL
+  JSON
+  OTHER
+
+  @@map("import_source_type")
+}
+
+enum LegSide {
+  LONG
+  SHORT
+
+  @@map("leg_side")
+}
+
+enum LegStatus {
+  OPEN
+  PARTIALLY_CLOSED
+  CLOSED
+  ROLLED
+  ASSIGNED
+  EXPIRED
+  EXERCISED
+  REPLACED
+
+  @@map("leg_status")
+}
+
+enum LegType {
+  STOCK
+  OPTION
+  CASH
+  OTHER
+
+  @@map("leg_type")
+}
+
+enum OptionStyle {
+  AMERICAN
+  EUROPEAN
+  OTHER
+
+  @@map("option_style")
+}
+
+enum OptionType {
+  CALL
+  PUT
+
+  @@map("option_type")
+}
+
+enum PositionActionType {
+  BTO
+  STO
+  BTC
+  STC
+  ROLL_CREDIT
+  ROLL_DEBIT
+  EXPIRED_WORTHLESS
+  ASSIGNED
+  EXERCISED
+  PARTIAL_CLOSE
+  ADJUSTMENT
+  DIVIDEND
+  INTEREST
+  FEE
+  NOTE
+
+  @@map("position_action_type")
+}
+
+enum PositionSourceType {
+  MANUAL
+  IMPORTED
+  HYBRID
+
+  @@map("position_source_type")
+}
+
+enum PositionStatus {
+  DRAFT
+  OPEN
+  PARTIALLY_CLOSED
+  CLOSED
+  ROLLED
+  ASSIGNED
+  EXPIRED
+  EXERCISED
+  CANCELLED
+  ARCHIVED
+
+  @@map("position_status")
+}
+
+enum RawTransactionType {
+  TRADE
+  ORDER
+  FILL
+  DIVIDEND
+  DEPOSIT
+  WITHDRAWAL
+  FEE
+  INTEREST
+  ASSIGNMENT
+  EXERCISE
+  EXPIRATION
+  TRANSFER
+  CORPORATE_ACTION
+  OTHER
+
+  @@map("raw_transaction_type")
+}
+
+enum ThemeMode {
+  LIGHT
+  DARK
+
+  @@map("theme_mode")
+}
+
+enum StrategyType {
+  STOCK_LONG
+  STOCK_SHORT
+  CSP
+  CC
+  LEAPS_CALL
+  LEAPS_PUT
+  LONG_CALL
+  LONG_PUT
+  SHORT_CALL
+  SHORT_PUT
+  BULL_CALL_SPREAD
+  BULL_PUT_SPREAD
+  BEAR_CALL_SPREAD
+  BEAR_PUT_SPREAD
+  IRON_CONDOR
+  IRON_BUTTERFLY
+  CALENDAR
+  DIAGONAL
+  STRANGLE
+  STRADDLE
+  WHEEL
+  CUSTOM
+
+  @@map("strategy_type")
+}
+
+
+
+
+
+
+
+
+
+
+

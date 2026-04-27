@@ -1,0 +1,782 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["partialIndexes"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Broker {
+  id          String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  brokerCode  broker_code     @unique(map: "uq_brokers_broker_code") @map("broker_code")
+  brokerName  String          @map("broker_name")
+  countryCode String?         @map("country_code")
+  websiteUrl  String?         @map("website_url")
+  notes       String?
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  accounts    BrokerAccount[]
+
+  @@map("brokers")
+}
+
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model BrokerAccount {
+  id                  String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  brokerId            String              @map("broker_id") @db.Uuid
+  accountName         String              @map("account_name")
+  accountType         broker_account_type @default(OTHER) @map("account_type")
+  accountNumberMasked String?             @map("account_number_masked")
+  baseCurrency        String              @default("USD") @map("base_currency")
+  isActive            Boolean             @default(true) @map("is_active")
+  openedAt            DateTime?           @map("opened_at") @db.Timestamptz(6)
+  closedAt            DateTime?           @map("closed_at") @db.Timestamptz(6)
+  notes               String?
+  createdAt           DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  broker              Broker              @relation(fields: [brokerId], references: [id], onUpdate: NoAction)
+  executions          executions[]
+  import_batches      import_batches[]
+  orders              orders[]
+  raw_transactions    raw_transactions[]
+
+  @@index([isActive], map: "idx_broker_accounts_active")
+  @@index([brokerId], map: "idx_broker_accounts_broker_id")
+  @@map("broker_accounts")
+}
+
+model Position {
+  id                                              String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sourceType                                      position_source_type @default(MANUAL) @map("source_type")
+  assetClass                                      asset_class          @map("asset_class")
+  strategyType                                    strategy_type        @map("strategy_type")
+  directionBias                                   direction_bias?      @map("direction_bias")
+  brokerAccountId                                 String?              @map("broker_account_id") @db.Uuid
+  underlyingSymbol                                String               @map("underlying_symbol")
+  positionTitle                                   String?              @map("position_title")
+  thesis                                          String?
+  entryPlan                                       String?              @map("entry_plan")
+  exitPlan                                        String?              @map("exit_plan")
+  openedAt                                        DateTime             @map("opened_at") @db.Timestamptz(6)
+  closedAt                                        DateTime?            @map("closed_at") @db.Timestamptz(6)
+  currentStatus                                   position_status      @default(OPEN) @map("current_status")
+  isWheelRelated                                  Boolean              @default(false) @map("is_wheel_related")
+  linkedHoldingId                                 String?              @map("linked_holding_id") @db.Uuid
+  tradeNotes                                      String?              @map("trade_notes")
+  createdAt                                       DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                                       DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  attachments                                     attachments[]
+  cash_ledger                                     cash_ledger[]
+  execution_links                                 execution_links[]
+  holdings_holdings_linked_position_idTopositions holdings[]           @relation("holdings_linked_position_idTopositions")
+  journal_entries                                 journal_entries?
+  actions                                         PositionAction[]
+  legs                                            PositionLeg[]
+  position_notes                                  position_notes[]
+  holdings_positions_linked_holding_idToholdings  holdings?            @relation("positions_linked_holding_idToholdings", fields: [linkedHoldingId], references: [id], onUpdate: NoAction, map: "fk_positions_linked_holding")
+  tag_links                                       tag_links[]
+
+  @@index([currentStatus], map: "idx_positions_current_status")
+  @@index([openedAt(sort: Desc)], map: "idx_positions_opened_at_desc")
+  @@index([strategyType], map: "idx_positions_strategy_type")
+  @@index([underlyingSymbol, currentStatus], map: "idx_positions_underlying_status")
+  @@index([underlyingSymbol], map: "idx_positions_underlying_symbol")
+  @@map("positions")
+}
+
+model PositionLeg {
+  id                                                              String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  positionId                                                      String               @map("position_id") @db.Uuid
+  legType                                                         leg_type             @map("leg_type")
+  legSide                                                         leg_side             @map("leg_side")
+  optionType                                                      option_type?         @map("option_type")
+  optionStyle                                                     option_style?        @map("option_style")
+  underlyingSymbol                                                String               @map("underlying_symbol")
+  expiryDate                                                      DateTime?            @map("expiry_date") @db.Date
+  strikePrice                                                     Decimal?             @map("strike_price") @db.Decimal(18, 4)
+  quantity                                                        Decimal              @db.Decimal(18, 4)
+  multiplier                                                      Decimal              @default(1) @db.Decimal(18, 4)
+  legRole                                                         String?              @map("leg_role")
+  openedAt                                                        DateTime             @map("opened_at") @db.Timestamptz(6)
+  closedAt                                                        DateTime?            @map("closed_at") @db.Timestamptz(6)
+  legStatus                                                       leg_status           @default(OPEN) @map("leg_status")
+  parentLegId                                                     String?              @map("parent_leg_id") @db.Uuid
+  createdAt                                                       DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                                                       DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  action_leg_changes_action_leg_changes_new_leg_idToposition_legs action_leg_changes[] @relation("action_leg_changes_new_leg_idToposition_legs")
+  action_leg_changes_action_leg_changes_old_leg_idToposition_legs action_leg_changes[] @relation("action_leg_changes_old_leg_idToposition_legs")
+  execution_links                                                 execution_links[]
+  position_legs                                                   PositionLeg?         @relation("position_legsToposition_legs", fields: [parentLegId], references: [id], onUpdate: NoAction)
+  other_position_legs                                             PositionLeg[]        @relation("position_legsToposition_legs")
+  position                                                        Position             @relation(fields: [positionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([expiryDate, strikePrice], map: "idx_position_legs_expiry_strike")
+  @@index([positionId], map: "idx_position_legs_position_id")
+  @@index([positionId, legStatus], map: "idx_position_legs_position_status")
+  @@index([underlyingSymbol], map: "idx_position_legs_underlying_symbol")
+  @@map("position_legs")
+}
+
+model PositionAction {
+  id                 String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  positionId         String               @map("position_id") @db.Uuid
+  actionTimestamp    DateTime             @map("action_timestamp") @db.Timestamptz(6)
+  actionType         position_action_type @map("action_type")
+  actionEffect       action_effect_type   @map("action_effect")
+  amount             Decimal?             @db.Decimal(18, 4)
+  feeAmount          Decimal              @default(0) @map("fee_amount") @db.Decimal(18, 4)
+  currency           String               @default("USD")
+  quantity           Decimal?             @db.Decimal(18, 4)
+  premiumPerUnit     Decimal?             @map("premium_per_unit") @db.Decimal(18, 4)
+  resultingStatus    position_status?     @map("resulting_status")
+  disciplineRating   discipline_rating    @default(UNRATED) @map("discipline_rating")
+  notes              String?
+  brokerReference    String?              @map("broker_reference")
+  createdAt          DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  action_leg_changes action_leg_changes[]
+  execution_links    execution_links[]
+  holding_events     holding_events[]
+  position           Position             @relation(fields: [positionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([actionTimestamp(sort: Desc)], map: "idx_position_actions_action_timestamp_desc")
+  @@index([actionType], map: "idx_position_actions_action_type")
+  @@index([positionId], map: "idx_position_actions_position_id")
+  @@index([positionId, actionTimestamp], map: "idx_position_actions_position_timestamp")
+  @@map("position_actions")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model action_leg_changes {
+  id                                                         String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  position_action_id                                         String                 @db.Uuid
+  old_leg_id                                                 String?                @db.Uuid
+  new_leg_id                                                 String?                @db.Uuid
+  change_type                                                action_leg_change_type
+  quantity_changed                                           Decimal?               @db.Decimal(18, 4)
+  notes                                                      String?
+  created_at                                                 DateTime               @default(now()) @db.Timestamptz(6)
+  position_legs_action_leg_changes_new_leg_idToposition_legs PositionLeg?           @relation("action_leg_changes_new_leg_idToposition_legs", fields: [new_leg_id], references: [id], onUpdate: NoAction)
+  position_legs_action_leg_changes_old_leg_idToposition_legs PositionLeg?           @relation("action_leg_changes_old_leg_idToposition_legs", fields: [old_leg_id], references: [id], onUpdate: NoAction)
+  position_actions                                           PositionAction         @relation(fields: [position_action_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([new_leg_id], map: "idx_action_leg_changes_new_leg_id")
+  @@index([old_leg_id], map: "idx_action_leg_changes_old_leg_id")
+  @@index([position_action_id], map: "idx_action_leg_changes_position_action_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model attachments {
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  position_id      String?          @db.Uuid
+  journal_entry_id String?          @db.Uuid
+  file_name        String
+  file_path        String
+  mime_type        String?
+  file_size_bytes  BigInt?
+  caption          String?
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  journal_entries  journal_entries? @relation(fields: [journal_entry_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  positions        Position?        @relation(fields: [position_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([journal_entry_id], map: "idx_attachments_journal_entry_id")
+  @@index([position_id], map: "idx_attachments_position_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model cash_ledger {
+  id                 String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  broker_account_id  String?       @db.Uuid
+  txn_timestamp      DateTime      @db.Timestamptz(6)
+  txn_type           cash_txn_type
+  amount             Decimal       @db.Decimal(18, 4)
+  currency           String        @default("USD")
+  linked_position_id String?       @db.Uuid
+  linked_holding_id  String?       @db.Uuid
+  description        String?
+  external_reference String?
+  created_at         DateTime      @default(now()) @db.Timestamptz(6)
+  holdings           holdings?     @relation(fields: [linked_holding_id], references: [id], onUpdate: NoAction)
+  positions          Position?     @relation(fields: [linked_position_id], references: [id], onUpdate: NoAction)
+
+  @@index([broker_account_id], map: "idx_cash_ledger_broker_account_id")
+  @@index([linked_holding_id], map: "idx_cash_ledger_linked_holding_id")
+  @@index([linked_position_id], map: "idx_cash_ledger_linked_position_id")
+  @@index([txn_timestamp(sort: Desc)], map: "idx_cash_ledger_txn_timestamp_desc")
+  @@index([txn_type], map: "idx_cash_ledger_txn_type")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model execution_links {
+  id                 String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  execution_id       String                     @db.Uuid
+  target_type        execution_link_target_type
+  position_id        String?                    @db.Uuid
+  position_leg_id    String?                    @db.Uuid
+  position_action_id String?                    @db.Uuid
+  holding_id         String?                    @db.Uuid
+  holding_event_id   String?                    @db.Uuid
+  link_notes         String?
+  confidence_score   Decimal?                   @db.Decimal(5, 2)
+  created_at         DateTime                   @default(now()) @db.Timestamptz(6)
+  executions         executions                 @relation(fields: [execution_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  holding_events     holding_events?            @relation(fields: [holding_event_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  holdings           holdings?                  @relation(fields: [holding_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  position_actions   PositionAction?            @relation(fields: [position_action_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  positions          Position?                  @relation(fields: [position_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  position_legs      PositionLeg?               @relation(fields: [position_leg_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([execution_id], map: "idx_execution_links_execution_id")
+  @@index([holding_event_id], map: "idx_execution_links_holding_event_id")
+  @@index([holding_id], map: "idx_execution_links_holding_id")
+  @@index([position_action_id], map: "idx_execution_links_position_action_id")
+  @@index([position_id], map: "idx_execution_links_position_id")
+  @@index([position_leg_id], map: "idx_execution_links_position_leg_id")
+  @@index([target_type], map: "idx_execution_links_target_type")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model executions {
+  id                  String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  broker_account_id   String?              @db.Uuid
+  import_batch_id     String?              @db.Uuid
+  raw_transaction_id  String?              @db.Uuid
+  order_id            String?              @db.Uuid
+  execution_timestamp DateTime             @db.Timestamptz(6)
+  broker_execution_id String?
+  broker_order_id     String?
+  underlying_symbol   String
+  instrument_symbol   String?
+  asset_class         asset_class
+  option_type         option_type?
+  option_style        option_style?
+  expiry_date         DateTime?            @db.Date
+  strike_price        Decimal?             @db.Decimal(18, 4)
+  side                execution_side
+  open_close          execution_open_close @default(UNKNOWN)
+  quantity            Decimal              @db.Decimal(18, 4)
+  multiplier          Decimal              @default(1) @db.Decimal(18, 4)
+  price               Decimal?             @db.Decimal(18, 4)
+  gross_amount        Decimal?             @db.Decimal(18, 4)
+  fee_amount          Decimal              @default(0) @db.Decimal(18, 4)
+  net_amount          Decimal?             @db.Decimal(18, 4)
+  currency            String               @default("USD")
+  description_text    String?
+  execution_notes     String?
+  created_at          DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime             @default(now()) @db.Timestamptz(6)
+  execution_links     execution_links[]
+  broker_accounts     BrokerAccount?       @relation(fields: [broker_account_id], references: [id], onUpdate: NoAction)
+  import_batches      import_batches?      @relation(fields: [import_batch_id], references: [id], onUpdate: NoAction)
+  orders              orders?              @relation(fields: [order_id], references: [id], onUpdate: NoAction)
+  raw_transactions    raw_transactions?    @relation(fields: [raw_transaction_id], references: [id], onUpdate: NoAction)
+
+  @@unique([broker_account_id, broker_execution_id], map: "uq_executions_account_broker_execution", where: raw("(broker_execution_id IS NOT NULL)"))
+  @@index([asset_class], map: "idx_executions_asset_class")
+  @@index([broker_account_id], map: "idx_executions_broker_account_id")
+  @@index([execution_timestamp(sort: Desc)], map: "idx_executions_execution_timestamp_desc")
+  @@index([expiry_date, strike_price], map: "idx_executions_expiry_strike")
+  @@index([import_batch_id], map: "idx_executions_import_batch_id")
+  @@index([open_close], map: "idx_executions_open_close")
+  @@index([order_id], map: "idx_executions_order_id")
+  @@index([raw_transaction_id], map: "idx_executions_raw_transaction_id")
+  @@index([side], map: "idx_executions_side")
+  @@index([underlying_symbol], map: "idx_executions_underlying_symbol")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model holding_events {
+  id                        String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  holding_id                String             @db.Uuid
+  event_timestamp           DateTime           @db.Timestamptz(6)
+  event_type                holding_event_type
+  quantity                  Decimal?           @db.Decimal(18, 4)
+  price_per_share           Decimal?           @db.Decimal(18, 4)
+  amount                    Decimal?           @db.Decimal(18, 4)
+  fee_amount                Decimal            @default(0) @db.Decimal(18, 4)
+  currency                  String             @default("USD")
+  linked_position_action_id String?            @db.Uuid
+  notes                     String?
+  created_at                DateTime           @default(now()) @db.Timestamptz(6)
+  execution_links           execution_links[]
+  holdings                  holdings           @relation(fields: [holding_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  position_actions          PositionAction?    @relation(fields: [linked_position_action_id], references: [id], onUpdate: NoAction)
+
+  @@index([event_timestamp(sort: Desc)], map: "idx_holding_events_event_timestamp_desc")
+  @@index([event_type], map: "idx_holding_events_event_type")
+  @@index([holding_id], map: "idx_holding_events_holding_id")
+  @@index([linked_position_action_id], map: "idx_holding_events_linked_position_action_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model holdings {
+  id                                               String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  broker_account_id                                String?             @db.Uuid
+  source_type                                      holding_source_type
+  symbol                                           String
+  quantity                                         Decimal             @db.Decimal(18, 4)
+  open_quantity                                    Decimal             @db.Decimal(18, 4)
+  remaining_quantity                               Decimal             @db.Decimal(18, 4)
+  cost_basis_per_share                             Decimal             @db.Decimal(18, 4)
+  opened_at                                        DateTime            @db.Timestamptz(6)
+  closed_at                                        DateTime?           @db.Timestamptz(6)
+  holding_status                                   holding_status      @default(OPEN)
+  linked_position_id                               String?             @db.Uuid
+  notes                                            String?
+  created_at                                       DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at                                       DateTime            @default(now()) @db.Timestamptz(6)
+  cash_ledger                                      cash_ledger[]
+  execution_links                                  execution_links[]
+  holding_events                                   holding_events[]
+  positions_holdings_linked_position_idTopositions Position?           @relation("holdings_linked_position_idTopositions", fields: [linked_position_id], references: [id], onUpdate: NoAction)
+  positions_positions_linked_holding_idToholdings  Position[]          @relation("positions_linked_holding_idToholdings")
+
+  @@index([holding_status], map: "idx_holdings_holding_status")
+  @@index([linked_position_id], map: "idx_holdings_linked_position_id")
+  @@index([symbol], map: "idx_holdings_symbol")
+  @@index([symbol, holding_status], map: "idx_holdings_symbol_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model import_batches {
+  id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  broker_account_id String?             @db.Uuid
+  source_type       import_source_type
+  batch_status      import_batch_status @default(PENDING)
+  import_label      String?
+  file_name         String?
+  file_hash         String?
+  raw_storage_path  String?
+  parser_version    String?
+  row_count         Int?
+  processed_count   Int?
+  error_count       Int?
+  imported_at       DateTime            @default(now()) @db.Timestamptz(6)
+  completed_at      DateTime?           @db.Timestamptz(6)
+  notes             String?
+  created_at        DateTime            @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime            @default(now()) @db.Timestamptz(6)
+  executions        executions[]
+  broker_accounts   BrokerAccount?      @relation(fields: [broker_account_id], references: [id], onUpdate: NoAction)
+  orders            orders[]
+  raw_transactions  raw_transactions[]
+
+  @@unique([broker_account_id, file_hash], map: "uq_import_batches_file_hash_per_account", where: raw("(file_hash IS NOT NULL)"))
+  @@index([broker_account_id], map: "idx_import_batches_broker_account_id")
+  @@index([imported_at(sort: Desc)], map: "idx_import_batches_imported_at_desc")
+  @@index([batch_status], map: "idx_import_batches_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model journal_entries {
+  id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  position_id       String        @unique @db.Uuid
+  setup_name        String?
+  market_context    String?
+  entry_reason      String?
+  exit_reason       String?
+  mistakes          String?
+  lessons_learned   String?
+  emotions          String?
+  confidence_rating Int?          @db.SmallInt
+  execution_rating  Int?          @db.SmallInt
+  plan_rating       Int?          @db.SmallInt
+  journal_note      String?
+  created_at        DateTime      @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime      @default(now()) @db.Timestamptz(6)
+  attachments       attachments[]
+  positions         Position      @relation(fields: [position_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tag_links         tag_links[]
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model orders {
+  id                     String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  broker_account_id      String?           @db.Uuid
+  import_batch_id        String?           @db.Uuid
+  raw_transaction_id     String?           @db.Uuid
+  broker_order_id        String?
+  broker_parent_order_id String?
+  placed_at              DateTime?         @db.Timestamptz(6)
+  submitted_at           DateTime?         @db.Timestamptz(6)
+  filled_at              DateTime?         @db.Timestamptz(6)
+  cancelled_at           DateTime?         @db.Timestamptz(6)
+  underlying_symbol      String?
+  order_side             execution_side?
+  order_type             String?
+  time_in_force          String?
+  quantity               Decimal?          @db.Decimal(18, 4)
+  limit_price            Decimal?          @db.Decimal(18, 4)
+  stop_price             Decimal?          @db.Decimal(18, 4)
+  status_text            String?
+  currency               String?
+  notes                  String?
+  created_at             DateTime          @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime          @default(now()) @db.Timestamptz(6)
+  executions             executions[]
+  broker_accounts        BrokerAccount?    @relation(fields: [broker_account_id], references: [id], onUpdate: NoAction)
+  import_batches         import_batches?   @relation(fields: [import_batch_id], references: [id], onUpdate: NoAction)
+  raw_transactions       raw_transactions? @relation(fields: [raw_transaction_id], references: [id], onUpdate: NoAction)
+
+  @@unique([broker_account_id, broker_order_id], map: "uq_orders_account_broker_order", where: raw("(broker_order_id IS NOT NULL)"))
+  @@index([broker_account_id], map: "idx_orders_broker_account_id")
+  @@index([broker_order_id], map: "idx_orders_broker_order_id")
+  @@index([import_batch_id], map: "idx_orders_import_batch_id")
+  @@index([placed_at(sort: Desc)], map: "idx_orders_placed_at_desc")
+  @@index([raw_transaction_id], map: "idx_orders_raw_transaction_id")
+  @@index([underlying_symbol], map: "idx_orders_underlying_symbol")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model position_notes {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  position_id    String   @db.Uuid
+  note_timestamp DateTime @default(now()) @db.Timestamptz(6)
+  note_text      String
+  note_type      String   @default("GENERAL")
+  created_at     DateTime @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime @default(now()) @db.Timestamptz(6)
+  positions      Position @relation(fields: [position_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([note_timestamp(sort: Desc)], map: "idx_position_notes_note_timestamp_desc")
+  @@index([position_id], map: "idx_position_notes_position_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model raw_transactions {
+  id                    String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  import_batch_id       String?              @db.Uuid
+  broker_account_id     String?              @db.Uuid
+  raw_txn_type          raw_transaction_type @default(OTHER)
+  broker_transaction_id String?
+  broker_order_id       String?
+  event_timestamp       DateTime?            @db.Timestamptz(6)
+  symbol_text           String?
+  description_text      String?
+  amount                Decimal?             @db.Decimal(18, 4)
+  quantity              Decimal?             @db.Decimal(18, 4)
+  price                 Decimal?             @db.Decimal(18, 4)
+  fee_amount            Decimal?             @db.Decimal(18, 4)
+  net_amount            Decimal?             @db.Decimal(18, 4)
+  currency              String?
+  raw_payload           Json
+  processing_notes      String?
+  created_at            DateTime             @default(now()) @db.Timestamptz(6)
+  executions            executions[]
+  orders                orders[]
+  broker_accounts       BrokerAccount?       @relation(fields: [broker_account_id], references: [id], onUpdate: NoAction)
+  import_batches        import_batches?      @relation(fields: [import_batch_id], references: [id], onUpdate: NoAction)
+
+  @@index([broker_account_id], map: "idx_raw_transactions_broker_account_id")
+  @@index([broker_transaction_id], map: "idx_raw_transactions_broker_transaction_id")
+  @@index([event_timestamp(sort: Desc)], map: "idx_raw_transactions_event_timestamp_desc")
+  @@index([import_batch_id], map: "idx_raw_transactions_import_batch_id")
+  @@index([raw_txn_type], map: "idx_raw_transactions_type")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+model tag_links {
+  id               String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tag_id           String           @db.Uuid
+  position_id      String?          @db.Uuid
+  journal_entry_id String?          @db.Uuid
+  created_at       DateTime         @default(now()) @db.Timestamptz(6)
+  journal_entries  journal_entries? @relation(fields: [journal_entry_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  positions        Position?        @relation(fields: [position_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  tags             tags             @relation(fields: [tag_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([tag_id, journal_entry_id], map: "uq_tag_links_journal_target", where: raw("(journal_entry_id IS NOT NULL)"))
+  @@unique([tag_id, position_id], map: "uq_tag_links_position_target", where: raw("(position_id IS NOT NULL)"))
+  @@index([journal_entry_id], map: "idx_tag_links_journal_entry_id")
+  @@index([position_id], map: "idx_tag_links_position_id")
+  @@index([tag_id], map: "idx_tag_links_tag_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model or at least one of its fields has comments in the database, and requires an additional setup for migrations: Read more: https://pris.ly/d/database-comments
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model tags {
+  id           String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tag_name     String
+  tag_category String?
+  created_at   DateTime    @default(now()) @db.Timestamptz(6)
+  tag_links    tag_links[]
+}
+
+enum action_effect_type {
+  OPEN
+  CLOSE
+  REDUCE
+  INCREASE
+  REPLACE
+  ROLL
+  EXPIRE
+  ASSIGN
+  EXERCISE
+  ADJUST
+  INCOME
+  EXPENSE
+  NOTE_ONLY
+}
+
+enum action_leg_change_type {
+  OPEN
+  CLOSE
+  REPLACE
+  REDUCE
+  INCREASE
+  EXPIRE
+  ASSIGN
+  EXERCISE
+}
+
+enum asset_class {
+  STOCK
+  OPTION
+  MIXED
+  CASH
+  OTHER
+}
+
+enum broker_account_type {
+  CASH
+  MARGIN
+  PAPER
+  RETIREMENT
+  OTHER
+}
+
+enum broker_code {
+  MOOMOO
+  TIGER
+  IBKR
+  TASTYTRADE
+  WEBULL
+  MANUAL
+  OTHER
+}
+
+enum cash_txn_type {
+  DEPOSIT
+  WITHDRAWAL
+  DIVIDEND
+  INTEREST
+  FEE
+  COMMISSION
+  TAX
+  TRANSFER_IN
+  TRANSFER_OUT
+  ADJUSTMENT
+  OTHER
+}
+
+enum direction_bias {
+  BULLISH
+  BEARISH
+  NEUTRAL
+  INCOME
+  VOLATILITY
+  CUSTOM
+}
+
+enum discipline_rating {
+  FOLLOWED_PLAN
+  ADJUSTED
+  BROKE_RULES
+  UNRATED
+}
+
+enum execution_link_target_type {
+  POSITION
+  POSITION_LEG
+  POSITION_ACTION
+  HOLDING
+  HOLDING_EVENT
+}
+
+enum execution_open_close {
+  OPEN
+  CLOSE
+  UNKNOWN
+}
+
+enum execution_side {
+  BUY
+  SELL
+}
+
+enum holding_event_type {
+  ACQUIRED
+  SOLD
+  PARTIAL_SELL
+  CALLED_AWAY
+  DIVIDEND
+  SPLIT
+  MERGER
+  TRANSFER_IN
+  TRANSFER_OUT
+  ADJUSTMENT
+  NOTE
+}
+
+enum holding_source_type {
+  MANUAL_BUY
+  ASSIGNED_FROM_PUT
+  EXERCISED_FROM_CALL
+  TRANSFER_IN
+  CORPORATE_ACTION
+  OTHER
+}
+
+enum holding_status {
+  OPEN
+  PARTIALLY_SOLD
+  CLOSED
+  CALLED_AWAY
+  TRANSFERRED_OUT
+  ARCHIVED
+}
+
+enum import_batch_status {
+  PENDING
+  PROCESSING
+  COMPLETED
+  PARTIAL
+  FAILED
+  CANCELLED
+}
+
+enum import_source_type {
+  CSV
+  PDF
+  API
+  MANUAL
+  JSON
+  OTHER
+}
+
+enum leg_side {
+  LONG
+  SHORT
+}
+
+enum leg_status {
+  OPEN
+  PARTIALLY_CLOSED
+  CLOSED
+  ROLLED
+  ASSIGNED
+  EXPIRED
+  EXERCISED
+  REPLACED
+}
+
+enum leg_type {
+  STOCK
+  OPTION
+  CASH
+  OTHER
+}
+
+enum option_style {
+  AMERICAN
+  EUROPEAN
+  OTHER
+}
+
+enum option_type {
+  CALL
+  PUT
+}
+
+enum position_action_type {
+  BTO
+  STO
+  BTC
+  STC
+  ROLL_CREDIT
+  ROLL_DEBIT
+  EXPIRED_WORTHLESS
+  ASSIGNED
+  EXERCISED
+  PARTIAL_CLOSE
+  ADJUSTMENT
+  DIVIDEND
+  INTEREST
+  FEE
+  NOTE
+}
+
+enum position_source_type {
+  MANUAL
+  IMPORTED
+  HYBRID
+}
+
+enum position_status {
+  DRAFT
+  OPEN
+  PARTIALLY_CLOSED
+  CLOSED
+  ROLLED
+  ASSIGNED
+  EXPIRED
+  EXERCISED
+  CANCELLED
+  ARCHIVED
+}
+
+enum raw_transaction_type {
+  TRADE
+  ORDER
+  FILL
+  DIVIDEND
+  DEPOSIT
+  WITHDRAWAL
+  FEE
+  INTEREST
+  ASSIGNMENT
+  EXERCISE
+  EXPIRATION
+  TRANSFER
+  CORPORATE_ACTION
+  OTHER
+}
+
+enum strategy_type {
+  STOCK_LONG
+  STOCK_SHORT
+  CSP
+  CC
+  LEAPS_CALL
+  LEAPS_PUT
+  LONG_CALL
+  LONG_PUT
+  SHORT_CALL
+  SHORT_PUT
+  BULL_CALL_SPREAD
+  BULL_PUT_SPREAD
+  BEAR_CALL_SPREAD
+  BEAR_PUT_SPREAD
+  IRON_CONDOR
+  IRON_BUTTERFLY
+  CALENDAR
+  DIAGONAL
+  STRANGLE
+  STRADDLE
+  WHEEL
+  CUSTOM
+}
