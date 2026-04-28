@@ -270,15 +270,18 @@ Implemented now:
 
 Current safety limits:
 
-- rollback is blocked for batches that imported holdings
 - rollback is blocked when imported positions have newer dependent records such as:
   - non-batch actions
   - journal or note data
   - holding links
   - non-batch cash ledger rows
+- rollback is blocked when imported holding history is no longer isolated and safe, for example:
+  - newer non-batch holding events exist after the batch events
+  - non-batch positions depend on the touched holding
+  - non-batch cash ledger rows are linked to the touched holding
+  - the importer cannot tell whether the holding existed before the batch
 
 Next rollback step:
-
-- support holding-event deletion plus holding snapshot recomputation so holding imports can also be undone safely
+- broaden dependency detection around more advanced holding-position relationships as new import scenarios are added
 
 That gives you a practical safety net without overcomplicating the first version.

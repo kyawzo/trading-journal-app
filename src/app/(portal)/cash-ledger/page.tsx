@@ -1,7 +1,7 @@
 import { NoticeToast } from "@/src/app/components/notice-toast";
 import { requireCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/prisma";
-import { attachRunningBalances, calculateCashLedgerSummary } from "@/src/lib/cash-ledger";
+import { attachRunningBalances, calculateCashLedgerSummary, formatCashTxnType } from "@/src/lib/cash-ledger";
 import { formatCurrency } from "@/src/lib/pnl";
 import {
   formatActiveBrokerLabel,
@@ -108,7 +108,7 @@ export default async function CashLedgerPage({ searchParams }: PageProps) {
               <li key={entry.id} className="list-card">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div>
-                    <h4 className="item-title">{entry.txnType}</h4>
+                    <h4 className="item-title">{formatCashTxnType(entry.txnType)}</h4>
                     <p className="note mt-2">{new Date(entry.txnTimestamp).toLocaleString()}</p>
                     <div className="item-row mt-3">
                       <span className="chip-neutral">{activeBrokerLabel}</span>

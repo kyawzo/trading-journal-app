@@ -203,6 +203,10 @@ body:has(.modal-backdrop) {
     @apply grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4;
   }
 
+  .stats-grid-2 {
+    @apply grid grid-cols-1 gap-3 md:grid-cols-2;
+  }
+
   .stats-grid-3 {
     @apply grid grid-cols-1 gap-3 md:grid-cols-3;
   }

@@ -21,6 +21,10 @@ type RequestOptions = {
 class CookieJar {
   private readonly values = new Map<string, string>();
 
+  get(name: string) {
+    return this.values.get(name) ?? null;
+  }
+
   toHeader() {
     return Array.from(this.values.entries())
       .map(([key, value]) => `${key}=${value}`)
@@ -398,6 +402,26 @@ describe("Integration Suite: Auth + Onboarding + Authorization", { concurrency: 
     assert.equal(getNoticeFromPath(locationPath), "Password must be at least 8 characters.");
   });
 
+  test("signup sanitizes unsafe next redirect target", { timeout: TEST_TIMEOUT_MS }, async () => {
+    const jar = new CookieJar();
+    const email = `signup.redirect.${Date.now()}@example.com`;
+
+    const response = await send("/api/auth/signup", {
+      form: {
+        displayName: "Signup Redirect Safety",
+        email,
+        password: "Passw0rd!123",
+        confirmPassword: "Passw0rd!123",
+        next: "https://evil.example/phish",
+      },
+      jar,
+    });
+
+    assert.equal(response.status, 307);
+    const locationPath = getLocationPath(response.headers.get("location"));
+    assert.equal(locationPath, "/onboarding?next=%2Fdashboard");
+  });
+
   test("login success routes user without broker account to onboarding", { timeout: TEST_TIMEOUT_MS }, async () => {
     const signed = await signUpUser("login-success");
 
@@ -408,6 +432,77 @@ describe("Integration Suite: Auth + Onboarding + Authorization", { concurrency: 
     assert.equal(response.status, 307);
     const locationPath = getLocationPath(response.headers.get("location"));
     assert.ok(locationPath.startsWith("/onboarding?next=%2Fdashboard"));
+  });
+
+  test("login sanitizes unsafe next redirect target", { timeout: TEST_TIMEOUT_MS }, async () => {
+    const signed = await signUpUser("login-unsafe-next");
+    await send("/api/auth/logout", { method: "POST", jar: signed.jar });
+
+    const response = await send("/api/auth/login", {
+      form: {
+        email: signed.email,
+        password: signed.password,
+        next: "https://evil.example/phish",
+      },
+      jar: new CookieJar(),
+    });
+
+    assert.equal(response.status, 307);
+    const locationPath = getLocationPath(response.headers.get("location"));
+    assert.equal(locationPath, "/onboarding?next=%2Fdashboard");
+  });
+
+  test("inactive user cannot login and no new session is created", { timeout: TEST_TIMEOUT_MS }, async () => {
+    const signed = await signUpUser("inactive-login");
+    await send("/api/auth/logout", { method: "POST", jar: signed.jar });
+
+    await prisma.user.update({
+      where: { id: signed.userId },
+      data: { isActive: false },
+    });
+
+    const { response } = await loginUser(signed.email, signed.password);
+    assert.equal(response.status, 307);
+
+    const locationPath = getLocationPath(response.headers.get("location"));
+    assert.match(locationPath, /^\/login\?/);
+    assert.equal(getNoticeFromPath(locationPath), "Email or password is incorrect.");
+
+    const sessionCount = await prisma.session.count({
+      where: { userId: signed.userId },
+    });
+    assert.equal(sessionCount, 0);
+  });
+
+  test("repeat login rotates current session instead of accumulating sessions", { timeout: TEST_TIMEOUT_MS }, async () => {
+    const signed = await signUpUser("session-rotation");
+    await send("/api/auth/logout", { method: "POST", jar: signed.jar });
+
+    const firstLogin = await loginUser(signed.email, signed.password);
+    assert.equal(firstLogin.response.status, 307);
+    const firstToken = firstLogin.jar.get("trading_journal_session");
+    assert.ok(firstToken, "Expected session cookie after first login.");
+
+    const secondLogin = await send("/api/auth/login", {
+      form: {
+        email: signed.email,
+        password: signed.password,
+        next: "/dashboard",
+      },
+      jar: firstLogin.jar,
+    });
+    assert.equal(secondLogin.status, 307);
+
+    const secondToken = firstLogin.jar.get("trading_journal_session");
+    assert.ok(secondToken, "Expected session cookie after second login.");
+    assert.notEqual(secondToken, firstToken, "Expected login to rotate current session token.");
+
+    const sessions = await prisma.session.findMany({
+      where: { userId: signed.userId },
+      select: { sessionToken: true },
+    });
+    assert.equal(sessions.length, 1);
+    assert.equal(sessions[0]?.sessionToken, secondToken);
   });
 
   test("login wrong password returns generic error", { timeout: TEST_TIMEOUT_MS }, async () => {
@@ -452,6 +547,26 @@ describe("Integration Suite: Auth + Onboarding + Authorization", { concurrency: 
 
     assert.equal(response.status, 307);
     assert.match(getLocationPath(response.headers.get("location")), /^\/login\?next=%2Fpositions%2Fnew/);
+  });
+
+  test("expired session is rejected on protected route", { timeout: TEST_TIMEOUT_MS }, async () => {
+    const signed = await signUpUser("expired-session");
+    const sessionToken = signed.jar.get("trading_journal_session");
+    assert.ok(sessionToken, "Expected auth cookie to be present.");
+
+    await prisma.session.updateMany({
+      where: { sessionToken },
+      data: { expiresAt: new Date(Date.now() - 60_000) },
+    });
+
+    const dashboard = await send("/dashboard", { jar: signed.jar });
+    assert.equal(dashboard.status, 307);
+    assert.match(getLocationPath(dashboard.headers.get("location")), /^\/login\?next=%2Fdashboard/);
+
+    const remainingSessions = await prisma.session.count({
+      where: { sessionToken },
+    });
+    assert.equal(remainingSessions, 0);
   });
 
   test("onboarding creates first broker account, sets active broker, and creates opening balance deposit", { timeout: TEST_TIMEOUT_MS }, async () => {

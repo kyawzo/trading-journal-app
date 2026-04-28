@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, redirectToLoginResponse } from "@/src/lib/auth";
 import { syncCashLedgerEntriesForHoldingEvent } from "@/src/lib/cash-ledger-sync";
 import { parseHoldingNumberInput } from "@/src/lib/holding-rules";
+import { syncHoldingPnlSnapshot } from "@/src/lib/pnl-snapshots";
 import { prisma } from "@/src/lib/prisma";
 import { getWorkspacePreference } from "@/src/lib/workspace-preference";
 
@@ -110,6 +111,7 @@ export async function POST(req: Request) {
   });
 
   await syncCashLedgerEntriesForHoldingEvent(openingEvent.id);
+  await syncHoldingPnlSnapshot(holding.id);
 
   return redirectWithMessage(req, `/holdings/${holding.id}`, "success", "Holding created successfully.");
 }

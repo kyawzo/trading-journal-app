@@ -41,13 +41,16 @@ export default async function ImportsPage() {
     orderBy: [{ importedAt: "desc" }],
     take: 10,
   });
+  const recentBatchIds = recentBatches.map((batch) => batch.id);
+  const importPrefixes = new Map(recentBatchIds.map((batchId) => [batchId, `IMPORT:${batchId}:`]));
 
-  const failedRows = recentBatches.length === 0
-    ? []
-    : await prisma.rawTransaction.findMany({
+  const [failedRows, importedPositionActions, importedHoldingEvents] = recentBatches.length === 0
+    ? [[], [], []] as const
+    : await Promise.all([
+      prisma.rawTransaction.findMany({
       where: {
         importBatchId: {
-          in: recentBatches.map((batch) => batch.id),
+          in: recentBatchIds,
         },
         processingNotes: {
           startsWith: "Failed:",
@@ -59,22 +62,98 @@ export default async function ImportsPage() {
         symbolText: true,
         processingNotes: true,
       },
-      take: 80,
-    });
+      take: 300,
+    }),
+      prisma.positionAction.findMany({
+        where: {
+          OR: recentBatchIds.map((batchId) => ({
+            brokerReference: {
+              startsWith: `IMPORT:${batchId}:`,
+            },
+          })),
+        },
+        select: {
+          brokerReference: true,
+          position: {
+            select: {
+              id: true,
+              underlyingSymbol: true,
+              strategyType: true,
+              currentStatus: true,
+            },
+          },
+        },
+        orderBy: [{ createdAt: "desc" }],
+      }),
+      prisma.holdingEvent.findMany({
+        where: {
+          OR: recentBatchIds.map((batchId) => ({
+            notes: {
+              contains: `IMPORT:${batchId}:`,
+              mode: "insensitive",
+            },
+          })),
+        },
+        select: {
+          notes: true,
+          holding: {
+            select: {
+              id: true,
+              symbol: true,
+              holdingStatus: true,
+            },
+          },
+        },
+        orderBy: [{ createdAt: "desc" }],
+      }),
+    ]);
 
   const failuresByBatch = new Map<string, Array<{ symbol: string; reason: string }>>();
   for (const row of failedRows) {
     const bucket = failuresByBatch.get(row.importBatchId ?? "") ?? [];
-    if (bucket.length >= 3) {
-      continue;
-    }
-
     bucket.push({
       symbol: row.symbolText ?? "N/A",
       reason: (row.processingNotes ?? "").replace(/^Failed:\s*/i, ""),
     });
     failuresByBatch.set(row.importBatchId ?? "", bucket);
   }
+
+  const positionsByBatch = new Map<string, Array<{ id: string; underlyingSymbol: string; strategyType: string; currentStatus: string }>>();
+  for (const action of importedPositionActions) {
+    const matchedBatchId = recentBatchIds.find((batchId) => action.brokerReference?.startsWith(importPrefixes.get(batchId) ?? ""));
+    if (!matchedBatchId) {
+      continue;
+    }
+
+    const bucket = positionsByBatch.get(matchedBatchId) ?? [];
+    if (!bucket.some((position) => position.id === action.position.id)) {
+      bucket.push(action.position);
+      positionsByBatch.set(matchedBatchId, bucket);
+    }
+  }
+
+  const holdingsByBatch = new Map<string, Array<{ id: string; symbol: string; holdingStatus: string }>>();
+  for (const event of importedHoldingEvents) {
+    const matchedBatchId = recentBatchIds.find((batchId) => event.notes?.includes(importPrefixes.get(batchId) ?? ""));
+    if (!matchedBatchId) {
+      continue;
+    }
+
+    const bucket = holdingsByBatch.get(matchedBatchId) ?? [];
+    if (!bucket.some((holding) => holding.id === event.holding.id)) {
+      bucket.push(event.holding);
+      holdingsByBatch.set(matchedBatchId, bucket);
+    }
+  }
+
+  const importOverview = {
+    batchCount: recentBatches.length,
+    importedRows: recentBatches.reduce((sum, batch) => sum + (batch.processedCount ?? 0), 0),
+    failedRows: recentBatches.reduce((sum, batch) => sum + (batch.errorCount ?? 0), 0),
+    completedBatches: recentBatches.filter((batch) => batch.batchStatus === "COMPLETED").length,
+    positionsCreated: recentBatchItemsPlaceholderCount(positionsByBatch),
+    holdingsTouched: recentBatchItemsPlaceholderCount(holdingsByBatch),
+  };
 
   const recentBatchItems = recentBatches.map((batch) => ({
     id: batch.id,
@@ -88,6 +167,8 @@ export default async function ImportsPage() {
     brokerName: batch.brokerAccount?.broker?.brokerName ?? "Broker",
     accountName: batch.brokerAccount?.accountName ?? "Account",
     failures: failuresByBatch.get(batch.id) ?? [],
+    positions: positionsByBatch.get(batch.id) ?? [],
+    holdings: holdingsByBatch.get(batch.id) ?? [],
   }));
 
   return (
@@ -118,7 +199,18 @@ export default async function ImportsPage() {
         />
       )}
 
-      <ImportHistoryPanel batches={recentBatchItems} />
+      <ImportHistoryPanel
+        batches={recentBatchItems}
+        overview={importOverview}
+      />
     </main>
   );
+}
+
+function recentBatchItemsPlaceholderCount<T>(map: Map<string, T[]>) {
+  let total = 0;
+  for (const items of map.values()) {
+    total += items.length;
+  }
+  return total;
 }

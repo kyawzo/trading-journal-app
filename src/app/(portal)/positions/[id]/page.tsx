@@ -2,7 +2,7 @@ import { NoticeToast } from "@/src/app/components/notice-toast";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PositionDetailLists } from "./position-detail-lists";
-import { calculatePositionPnlSummary, formatCurrency } from "@/src/lib/pnl";
+import { formatCurrency } from "@/src/lib/pnl";
 import { findOwnedPositionForUser } from "@/src/lib/ownership";
 import { requireCurrentUser } from "@/src/lib/auth";
 import { formatBrokerAccountLabel } from "@/src/lib/workspace-preference";
@@ -62,14 +62,22 @@ export default async function PositionDetailPage({ params, searchParams }: PageP
             },
             orderBy: { actionTimestamp: "asc" },
         },
+        pnlSnapshot: true,
     });
 
     if (!position) {
         notFound();
     }
 
-    const pnlSummary = calculatePositionPnlSummary(position.actions);
     const brokerLabel = formatBrokerAccountLabel(position.brokerAccount);
+    const pnlSummary = {
+        currency: position.pnlSnapshot?.currency ?? position.brokerAccount?.baseCurrency ?? "USD",
+        grossCredits: Number(position.pnlSnapshot?.grossCredits?.toString() ?? 0),
+        grossDebits: Number(position.pnlSnapshot?.grossDebits?.toString() ?? 0),
+        totalFees: Number(position.pnlSnapshot?.totalFees?.toString() ?? 0),
+        netCashFlow: Number(position.pnlSnapshot?.netCashFlow?.toString() ?? 0),
+        ignoredAmountCount: position.pnlSnapshot?.ignoredAmountCount ?? 0,
+    };
 
     return (
         <main className="page-shell">
@@ -107,7 +115,7 @@ export default async function PositionDetailPage({ params, searchParams }: PageP
             <section className="section-stack">
                 <div>
                     <h3 className="section-heading">Position PnL Summary</h3>
-                    <p className="section-copy">Simple realized cash flow based on recorded position actions.</p>
+                    <p className="section-copy">Snapshot-backed realized cash flow summary from recorded position actions.</p>
                 </div>
 
                 <div className="stats-grid">

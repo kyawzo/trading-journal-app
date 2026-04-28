@@ -28,6 +28,41 @@ const ACTION_TYPES = [
   { value: "NOTE", label: "Note" },
 ] as const;
 
+function getActionTypeLabel(actionType: string) {
+  return ACTION_TYPES.find((action) => action.value === actionType)?.label ?? actionType;
+}
+
+function getActionTypeGuidance(actionType: string) {
+  switch (actionType) {
+    case "STO":
+      return "Opens a short option position and usually adds premium cash to the trade.";
+    case "BTO":
+      return "Opens a long option position and usually spends premium cash.";
+    case "BTC":
+      return "Closes a short option position and usually spends premium cash to buy it back.";
+    case "STC":
+      return "Closes a long option position and usually brings premium cash back in.";
+    case "ROLL_CREDIT":
+      return "Rolls an existing option structure for a net credit.";
+    case "ROLL_DEBIT":
+      return "Rolls an existing option structure for a net debit.";
+    case "EXPIRED_WORTHLESS":
+      return "Marks the option as expired worthless with no closing fill.";
+    case "ASSIGNED":
+      return "Marks assignment and can create a linked holding automatically.";
+    case "EXERCISED":
+      return "Marks exercise and records the resulting stock-side move.";
+    case "DIVIDEND":
+      return "Adds income cash without changing the option structure.";
+    case "INTEREST":
+      return "Adds broker interest income.";
+    case "FEE":
+      return "Records a direct broker charge or adjustment expense.";
+    default:
+      return "Use note-only actions when you want a timeline marker without trade cash flow.";
+  }
+}
+
 const QUANTITY_ACTIONS = new Set([
   "STO",
   "BTO",
@@ -486,6 +521,12 @@ export function PositionActionForm({ positionId }: PositionDetailFormsProps) {
           </select>
         </Field>
 
+        <div className="meta-item md:col-span-2">
+          <p className="meta-label">Selected Action</p>
+          <p className="meta-value">{getActionTypeLabel(actionType)}</p>
+          <p className="note mt-2">{getActionTypeGuidance(actionType)}</p>
+        </div>
+
         <Field label="Action Timestamp">
           <input
             name="actionTimestamp"
@@ -600,7 +641,7 @@ export function PositionActionForm({ positionId }: PositionDetailFormsProps) {
           {showAssignment
             ? "Assignment updates the position status and can create a linked holding automatically."
             : showPremium
-              ? "For option actions, enter the premium quote only. The app calculates cash as premium x contracts x 100."
+              ? "For option actions, enter the premium quote only. Double-check STO vs BTC or BTO vs STC before saving. The app calculates cash as premium x contracts x 100."
               : showAmount
                 ? "Use amount for cash-moving actions such as dividends, interest, fees, exercise, or assignment."
                 : "Use notes-only actions when you want a journal marker without a trade amount or quantity."}
@@ -625,7 +666,6 @@ export function PositionActionForm({ positionId }: PositionDetailFormsProps) {
     </form>
   );
 }
-
 
 
 

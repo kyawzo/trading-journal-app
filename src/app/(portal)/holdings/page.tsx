@@ -1,6 +1,6 @@
 import { requireCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/prisma";
-import { calculateHoldingPnlSummary, formatCurrency, formatNumber } from "@/src/lib/pnl";
+import { formatCurrency, formatNumber } from "@/src/lib/pnl";
 import {
   formatActiveBrokerLabel,
   formatBrokerAccountLabel,
@@ -31,25 +31,24 @@ export default async function HoldingsPage() {
           broker: true,
         },
       },
-      holdingEvents: {
+      pnlSnapshot: {
         select: {
-          eventType: true,
-          quantity: true,
-          pricePerShare: true,
-          amount: true,
-          feeAmount: true,
           currency: true,
+          estimatedOpenCost: true,
+          effectiveCostBasisPerShare: true,
         },
       },
     },
   });
 
   const holdingCards = holdings.map((holding) => {
-    const pnlSummary = calculateHoldingPnlSummary(holding);
     const remainingQuantityValue = Number(holding.remainingQuantity.toString());
+    const estimatedOpenCost = Number(holding.pnlSnapshot?.estimatedOpenCost?.toString() ?? 0);
+    const fallbackCostBasisPerShare = Number(holding.costBasisPerShare.toString());
     const avgCostPerShare = remainingQuantityValue > 0
-      ? pnlSummary.estimatedOpenCost / remainingQuantityValue
-      : pnlSummary.effectiveCostBasisPerShare;
+      ? estimatedOpenCost / remainingQuantityValue
+      : Number(holding.pnlSnapshot?.effectiveCostBasisPerShare?.toString() ?? fallbackCostBasisPerShare);
+    const summaryCurrency = holding.pnlSnapshot?.currency ?? holding.brokerAccount?.baseCurrency ?? "USD";
 
     return {
       id: holding.id,
@@ -60,8 +59,8 @@ export default async function HoldingsPage() {
       sourceType: holding.sourceType,
       brokerLabel: formatBrokerAccountLabel(holding.brokerAccount),
       openedAtDisplay: new Date(holding.openedAt).toLocaleDateString(),
-      openCostDisplay: formatCurrency(pnlSummary.estimatedOpenCost, pnlSummary.currency),
-      avgCostDisplay: formatCurrency(avgCostPerShare, pnlSummary.currency),
+      openCostDisplay: formatCurrency(estimatedOpenCost, summaryCurrency),
+      avgCostDisplay: formatCurrency(avgCostPerShare, summaryCurrency),
     };
   });
 
