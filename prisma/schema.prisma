@@ -28,6 +28,7 @@ model UserPreference {
   userId                String         @unique(map: "uq_user_preferences_user_id") @map("user_id") @db.Uuid
   themeMode             ThemeMode      @default(LIGHT) @map("theme_mode")
   activeBrokerAccountId String?        @map("active_broker_account_id") @db.Uuid
+  backupFolderPath      String?        @map("backup_folder_path")
   createdAt             DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 

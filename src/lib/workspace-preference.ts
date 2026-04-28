@@ -12,6 +12,7 @@ function getDefaultWorkspacePreference() {
     themeMode: ThemeMode.LIGHT,
     activeBrokerAccountId: null,
     activeBrokerAccount: null,
+    backupFolderPath: null,
   };
 }
 

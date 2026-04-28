@@ -119,6 +119,59 @@ export default async function SettingsPage({ searchParams }: PageProps) {
           </form>
         </div>
       </section>
+
+      <section className="panel-strong section-stack">
+        <div>
+          <h3 className="section-heading">Database Backup</h3>
+          <p className="section-copy">
+            Configure an absolute backup folder path, then create a PostgreSQL backup file named as
+            {" "}
+            <code>{`dbname_YYYYMMDD_HHMMSS.backup`}</code>.
+          </p>
+        </div>
+
+        <div className="grid gap-6 lg:grid-cols-2">
+          <form method="POST" action="/api/workspace-preferences" className="section-stack panel space-y-5">
+            <input type="hidden" name="intent" value="set-backup-folder" />
+
+            <div>
+              <h4 className="section-heading">Backup Folder</h4>
+              <p className="section-copy">Use an absolute path, for example <code>D:\Backups\TradingJournal</code>.</p>
+            </div>
+
+            <label className="field-stack">
+              <span className="field-label">Folder Path</span>
+              <input
+                name="backupFolderPath"
+                defaultValue={workspace.backupFolderPath ?? ""}
+                className="input-field"
+                placeholder="D:\\Backups\\TradingJournal"
+                required
+              />
+            </label>
+
+            <div className="hero-actions mt-4">
+              <button className="btn-primary">Save Backup Folder</button>
+            </div>
+          </form>
+
+          <form method="POST" action="/api/database-backup" className="section-stack panel space-y-5">
+            <div>
+              <h4 className="section-heading">Run Backup</h4>
+              <p className="section-copy">Creates one backup file in your saved folder using the currently configured database connection.</p>
+            </div>
+
+            <label className="field-stack">
+              <span className="field-label">Configured Folder</span>
+              <input value={workspace.backupFolderPath ?? "Not configured"} className="input-field" disabled readOnly />
+            </label>
+
+            <div className="hero-actions mt-4">
+              <button className="btn-primary">Backup Database</button>
+            </div>
+          </form>
+        </div>
+      </section>
     </main>
   );
 }
