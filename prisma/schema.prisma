@@ -91,6 +91,8 @@ model BrokerAccount {
   orders                     Order[]
   rawTransactions            RawTransaction[]
   activeUserPreferences      UserPreference[]
+  positionPnlSnapshots       PositionPnlSnapshot[]
+  holdingPnlSnapshots        HoldingPnlSnapshot[]
 
   @@index([isActive], map: "idx_broker_accounts_active")
   @@index([brokerId], map: "idx_broker_accounts_broker_id")
@@ -130,6 +132,7 @@ model Position {
   actions           PositionAction[]
   legs              PositionLeg[]
   notes             PositionNote[]
+  pnlSnapshot       PositionPnlSnapshot?
   tagLinks          TagLink[]
 
   @@index([currentStatus], map: "idx_positions_current_status")
@@ -395,12 +398,57 @@ model Holding {
   brokerAccount       BrokerAccount? @relation(fields: [brokerAccountId], references: [id], onUpdate: NoAction)
   linkedPosition      Position?      @relation("HoldingLinkedPosition", fields: [linkedPositionId], references: [id], onUpdate: NoAction)
   linkedFromPositions Position[]     @relation("PositionLinkedHolding")
+  pnlSnapshot         HoldingPnlSnapshot?
 
   @@index([holdingStatus], map: "idx_holdings_holding_status")
   @@index([linkedPositionId], map: "idx_holdings_linked_position_id")
   @@index([symbol], map: "idx_holdings_symbol")
   @@index([symbol, holdingStatus], map: "idx_holdings_symbol_status")
   @@map("holdings")
+}
+
+model PositionPnlSnapshot {
+  positionId         String    @id @map("position_id") @db.Uuid
+  brokerAccountId    String?   @map("broker_account_id") @db.Uuid
+  currency           String    @default("USD")
+  grossCredits       Decimal   @default(0) @map("gross_credits") @db.Decimal(18, 4)
+  grossDebits        Decimal   @default(0) @map("gross_debits") @db.Decimal(18, 4)
+  totalFees          Decimal   @default(0) @map("total_fees") @db.Decimal(18, 4)
+  netCashFlow        Decimal   @default(0) @map("net_cash_flow") @db.Decimal(18, 4)
+  ignoredAmountCount Int       @default(0) @map("ignored_amount_count")
+  refreshedAt        DateTime  @default(now()) @map("refreshed_at") @db.Timestamptz(6)
+
+  position      Position       @relation(fields: [positionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  brokerAccount BrokerAccount? @relation(fields: [brokerAccountId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([brokerAccountId], map: "idx_position_pnl_snapshots_broker_account_id")
+  @@index([refreshedAt], map: "idx_position_pnl_snapshots_refreshed_at")
+  @@map("position_pnl_snapshots")
+}
+
+model HoldingPnlSnapshot {
+  holdingId                    String    @id @map("holding_id") @db.Uuid
+  brokerAccountId              String?   @map("broker_account_id") @db.Uuid
+  currency                     String    @default("USD")
+  acquiredShares               Decimal   @default(0) @map("acquired_shares") @db.Decimal(18, 4)
+  soldShares                   Decimal   @default(0) @map("sold_shares") @db.Decimal(18, 4)
+  grossPurchaseCost            Decimal   @default(0) @map("gross_purchase_cost") @db.Decimal(18, 4)
+  grossSaleProceeds            Decimal   @default(0) @map("gross_sale_proceeds") @db.Decimal(18, 4)
+  acquisitionFees              Decimal   @default(0) @map("acquisition_fees") @db.Decimal(18, 4)
+  dispositionFees              Decimal   @default(0) @map("disposition_fees") @db.Decimal(18, 4)
+  totalFees                    Decimal   @default(0) @map("total_fees") @db.Decimal(18, 4)
+  effectiveCostBasisPerShare   Decimal   @default(0) @map("effective_cost_basis_per_share") @db.Decimal(18, 4)
+  estimatedCostOfSoldShares    Decimal   @default(0) @map("estimated_cost_of_sold_shares") @db.Decimal(18, 4)
+  estimatedRealizedPnl         Decimal   @default(0) @map("estimated_realized_pnl") @db.Decimal(18, 4)
+  estimatedOpenCost            Decimal   @default(0) @map("estimated_open_cost") @db.Decimal(18, 4)
+  refreshedAt                  DateTime  @default(now()) @map("refreshed_at") @db.Timestamptz(6)
+
+  holding       Holding        @relation(fields: [holdingId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  brokerAccount BrokerAccount? @relation(fields: [brokerAccountId], references: [id], onDelete: SetNull, onUpdate: NoAction)
+
+  @@index([brokerAccountId], map: "idx_holding_pnl_snapshots_broker_account_id")
+  @@index([refreshedAt], map: "idx_holding_pnl_snapshots_refreshed_at")
+  @@map("holding_pnl_snapshots")
 }
 
 model ImportBatch {
@@ -643,6 +691,9 @@ enum CashTxnType {
   WITHDRAWAL
   DIVIDEND
   INTEREST
+  OPTIONS_PREMIUM
+  STOCK_PURCHASE
+  STOCK_SALE
   FEE
   COMMISSION
   TAX

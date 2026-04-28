@@ -4,6 +4,7 @@ import { getCurrentUser, redirectToLoginResponse } from "../../../../../lib/auth
 import { syncCashLedgerEntriesForHoldingEvent } from "../../../../../lib/cash-ledger-sync";
 import { parseHoldingNumberInput, syncHoldingFromEvents } from "../../../../../lib/holding-rules";
 import { findOwnedHoldingForUser } from "../../../../../lib/ownership";
+import { syncHoldingPnlSnapshot } from "../../../../../lib/pnl-snapshots";
 import { prisma } from "../../../../../lib/prisma";
 
 const QUANTITY_REQUIRED_EVENT_TYPES = new Set([
@@ -112,6 +113,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   await syncHoldingFromEvents(id, prisma);
   await syncCashLedgerEntriesForHoldingEvent(createdEvent.id);
+  await syncHoldingPnlSnapshot(id);
 
   return redirectWithMessage(req, id, "success", "Holding event added successfully.");
 }

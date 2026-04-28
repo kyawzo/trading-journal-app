@@ -1,4 +1,5 @@
 import { syncCashLedgerEntriesForPositionAction } from "./cash-ledger-sync";
+import { syncPositionPnlSnapshot } from "./pnl-snapshots";
 import { calculateCoveredCallShareUsage, parseNumericInput, toNumber } from "./position-rules";
 import { prisma } from "./prisma";
 
@@ -195,6 +196,7 @@ export async function createPositionRoll(input: RollPositionInput) {
   });
 
   await syncCashLedgerEntriesForPositionAction(createdAction.id);
+  await syncPositionPnlSnapshot(input.positionId);
 
   return createdAction;
 }

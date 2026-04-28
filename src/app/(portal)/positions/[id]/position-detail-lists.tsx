@@ -76,6 +76,20 @@ function orderStructuredLegs(legs: PositionLegItem[], strategyType: string) {
 }
 
 const OPTION_PREMIUM_ACTION_TYPES = new Set(["STO", "BTO", "BTC", "STC", "ROLL_CREDIT", "ROLL_DEBIT"]);
+const ACTION_TYPE_OPTIONS = [
+  { value: "STO", label: "STO (Sell to Open)" },
+  { value: "BTO", label: "BTO (Buy to Open)" },
+  { value: "BTC", label: "BTC (Buy to Close)" },
+  { value: "STC", label: "STC (Sell to Close)" },
+  { value: "ROLL_CREDIT", label: "ROLL_CREDIT (Net Credit)" },
+  { value: "ROLL_DEBIT", label: "ROLL_DEBIT (Net Debit)" },
+  { value: "EXPIRED_WORTHLESS", label: "EXPIRED_WORTHLESS" },
+  { value: "EXERCISED", label: "EXERCISED" },
+  { value: "DIVIDEND", label: "DIVIDEND" },
+  { value: "INTEREST", label: "INTEREST" },
+  { value: "FEE", label: "FEE" },
+  { value: "NOTE", label: "NOTE" },
+] as const;
 
 function isActiveLegStatus(status: string | null | undefined) {
   return status === "OPEN" || status === "PARTIALLY_CLOSED";
@@ -83,6 +97,29 @@ function isActiveLegStatus(status: string | null | undefined) {
 
 function usesPremiumQuote(actionType: string) {
   return OPTION_PREMIUM_ACTION_TYPES.has(actionType);
+}
+
+function getActionTypeLabel(actionType: string) {
+  return ACTION_TYPE_OPTIONS.find((action) => action.value === actionType)?.label ?? actionType;
+}
+
+function getActionTypeGuidance(actionType: string) {
+  switch (actionType) {
+    case "STO":
+      return "Adds premium cash when you are opening a short option position.";
+    case "BTO":
+      return "Spends premium cash when you are opening a long option position.";
+    case "BTC":
+      return "Spends premium cash to close a short option position.";
+    case "STC":
+      return "Brings premium cash back in when closing a long option position.";
+    case "ROLL_CREDIT":
+      return "Use when the replacement trade gives you a net credit.";
+    case "ROLL_DEBIT":
+      return "Use when the replacement trade costs you a net debit.";
+    default:
+      return "Choose the action that matches the real broker-side execution before saving.";
+  }
 }
 
 function renderLegMetricCard(label: string, value: string | null | undefined) {
@@ -160,6 +197,7 @@ export function PositionDetailLists({ positionId, strategyType, legs, actions, j
     | { kind: "journal" }
     | null
   >(null);
+  const [activeActionType, setActiveActionType] = useState<string | null>(null);
 
   const legTemplate = getPositionStrategyLegTemplate(strategyType);
   const allowSharedLegEditing = supportsGroupedLegEditing(strategyType);
@@ -178,7 +216,8 @@ export function PositionDetailLists({ positionId, strategyType, legs, actions, j
   const activeAction = activeModal?.kind === "action"
     ? actions.find((action) => action.id === activeModal.id) ?? null
     : null;
-  const activeActionUsesPremium = activeAction ? usesPremiumQuote(activeAction.actionType) : false;
+  const resolvedActiveActionType = activeActionType ?? activeAction?.actionType ?? null;
+  const activeActionUsesPremium = resolvedActiveActionType ? usesPremiumQuote(resolvedActiveActionType) : false;
 
   return (
     <>
@@ -221,7 +260,7 @@ export function PositionDetailLists({ positionId, strategyType, legs, actions, j
                 <h3 id="create-action-title" className="section-heading">Add a new trade action</h3>
                 <p className="section-copy">Capture premium, closes, income, notes, and the real action timestamp without interrupting the rest of the page layout.</p>
               </div>
-              <button type="button" className="modal-close" onClick={() => setActiveModal(null)}>Close</button>
+              <button type="button" className="modal-close" onClick={() => { setActiveActionType(null); setActiveModal(null); }}>Close</button>
             </div>
             <PositionActionForm positionId={positionId} />
           </div>
@@ -358,6 +397,7 @@ export function PositionDetailLists({ positionId, strategyType, legs, actions, j
       {activeAction ? (
         <div className="modal-backdrop" role="presentation" style={{ paddingBlock: "1.5rem", overflowY: "auto" }} onMouseDown={(event) => {
           if (event.target === event.currentTarget) {
+            setActiveActionType(null);
             setActiveModal(null);
           }
         }}>
@@ -368,7 +408,7 @@ export function PositionDetailLists({ positionId, strategyType, legs, actions, j
                 <h3 id="edit-action-title" className="section-heading">Edit or delete action</h3>
                 <p className="section-copy">Keep the trade timeline editable without opening long inline forms.</p>
               </div>
-              <button type="button" className="modal-close" onClick={() => setActiveModal(null)}>Close</button>
+              <button type="button" className="modal-close" onClick={() => { setActiveActionType(null); setActiveModal(null); }}>Close</button>
             </div>
 
             {activeAction.locked ? (
@@ -378,7 +418,12 @@ export function PositionDetailLists({ positionId, strategyType, legs, actions, j
                 <div style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingRight: "0.35rem" }} className="space-y-4">
                 <input type="hidden" name="intent" value="update" />
                 <div className="form-grid">
-                  <label className="field-stack"><span className="field-label">Action Type</span><select name="actionType" defaultValue={activeAction.actionType} className="select-field"><option value="STO">STO</option><option value="BTO">BTO</option><option value="BTC">BTC</option><option value="STC">STC</option><option value="ROLL_CREDIT">ROLL_CREDIT</option><option value="ROLL_DEBIT">ROLL_DEBIT</option><option value="EXPIRED_WORTHLESS">EXPIRED_WORTHLESS</option><option value="EXERCISED">EXERCISED</option><option value="DIVIDEND">DIVIDEND</option><option value="INTEREST">INTEREST</option><option value="FEE">FEE</option><option value="NOTE">NOTE</option></select></label>
+                  <label className="field-stack"><span className="field-label">Action Type</span><select name="actionType" value={resolvedActiveActionType ?? activeAction.actionType} onChange={(event) => setActiveActionType(event.target.value)} className="select-field">{ACTION_TYPE_OPTIONS.map((action) => <option key={action.value} value={action.value}>{action.label}</option>)}</select></label>
+                  <div className="meta-item md:col-span-2">
+                    <p className="meta-label">Current Action</p>
+                    <p className="meta-value">{getActionTypeLabel(resolvedActiveActionType ?? activeAction.actionType)}</p>
+                    <p className="note mt-2">{getActionTypeGuidance(resolvedActiveActionType ?? activeAction.actionType)}</p>
+                  </div>
                   <label className="field-stack"><span className="field-label">Action Timestamp</span><input name="actionTimestamp" type="datetime-local" defaultValue={activeAction.actionTimestampValue} className="input-field" /></label>
                   {!activeActionUsesPremium ? <label className="field-stack"><span className="field-label">Amount</span><input name="amount" type="number" step="0.01" defaultValue={activeAction.amount ?? ""} className="input-field" /></label> : null}
                   <label className="field-stack"><span className="field-label">Fee Amount</span><input name="feeAmount" type="number" step="0.01" defaultValue={activeAction.feeAmount} className="input-field" /></label>
@@ -392,7 +437,7 @@ export function PositionDetailLists({ positionId, strategyType, legs, actions, j
                 </div>
 
                 <div className="modal-actions pt-6" style={{ borderTop: "1px solid var(--line)" }}>
-                  <button type="button" className="btn-ghost" onClick={() => setActiveModal(null)}>Cancel</button>
+                  <button type="button" className="btn-ghost" onClick={() => { setActiveActionType(null); setActiveModal(null); }}>Cancel</button>
                   <button type="submit" name="intent" value="update" className="btn-primary">Save Action Changes</button>
                   <button type="submit" name="intent" value="delete" className="btn-ghost">Delete Action</button>
                 </div>
@@ -579,7 +624,7 @@ export function PositionDetailLists({ positionId, strategyType, legs, actions, j
                       {action.resultingStatus ? <span className="chip">{action.resultingStatus}</span> : null}
                       {action.locked ? <span className="chip-neutral">LOCKED</span> : null}
                     </div>
-                    <button type="button" className="btn-ghost" onClick={() => setActiveModal({ kind: "action", id: action.id })}>Manage Action</button>
+                    <button type="button" className="btn-ghost" onClick={() => { setActiveActionType(action.actionType); setActiveModal({ kind: "action", id: action.id }); }}>Manage Action</button>
                   </div>
                 </div>
 

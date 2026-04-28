@@ -1,9 +1,13 @@
 import { prisma } from "@/src/lib/prisma";
+import { syncHoldingPnlSnapshots } from "@/src/lib/pnl-snapshots";
+import { syncHoldingFromEvents } from "@/src/lib/holding-rules";
 
 type RollbackDeletedCounts = {
   positions: number;
   positionActions: number;
   positionLegs: number;
+  holdings: number;
+  holdingEvents: number;
   cashLedgerEntries: number;
   rawTransactions: number;
   orders: number;
@@ -18,6 +22,20 @@ export type RollbackImportBatchResult = {
 function getImportPrefix(importBatchId: string) {
   return `IMPORT:${importBatchId}:`;
 }
+
+function hasImportPrefix(value: string | null | undefined, importPrefix: string) {
+  return value?.includes(importPrefix) ?? false;
+}
+
+function isImportedReference(value: string | null | undefined, importPrefix: string) {
+  return value?.startsWith(importPrefix) ?? false;
+}
+
+type HoldingRollbackTarget = {
+  id: string;
+  symbol: string;
+  deleteHolding: boolean;
+};
 
 export async function rollbackImportBatchForUser(userId: string, importBatchId: string): Promise<RollbackImportBatchResult> {
   const batch = await prisma.importBatch.findFirst({
@@ -67,6 +85,8 @@ export async function rollbackImportBatchForUser(userId: string, importBatchId: 
       },
       select: {
         id: true,
+        holdingId: true,
+        linkedPositionActionId: true,
       },
     }),
     prisma.positionAction.findMany({
@@ -98,70 +118,108 @@ export async function rollbackImportBatchForUser(userId: string, importBatchId: 
     }),
   ]);
 
-  if (holdingEventsFromBatch.length > 0) {
-    throw new Error("Rollback is currently blocked for batches that imported holdings. Position-only batches are supported first.");
-  }
-
   const importedActionIds = importedPositionActions.map((action) => action.id);
+  const importedActionIdSet = new Set(importedActionIds);
   const importedPositionIds = [...new Set(importedPositionActions.map((action) => action.positionId))];
+  const importedPositionIdSet = new Set(importedPositionIds);
   const rawTransactionIds = importedRawTransactions.map((row) => row.id);
+  const importedHoldingEventIds = holdingEventsFromBatch.map((event) => event.id);
+  const importedHoldingEventIdSet = new Set(importedHoldingEventIds);
+  const importedHoldingIds = [...new Set(holdingEventsFromBatch.map((event) => event.holdingId))];
 
-  const positions = importedPositionIds.length === 0
-    ? []
-    : await prisma.position.findMany({
-      where: {
-        id: {
-          in: importedPositionIds,
-        },
-        brokerAccount: {
-          userId,
-        },
-      },
-      include: {
-        actions: {
-          select: {
-            id: true,
-            brokerReference: true,
+  const [positions, touchedHoldings] = await Promise.all([
+    importedPositionIds.length === 0
+      ? Promise.resolve([])
+      : prisma.position.findMany({
+        where: {
+          id: {
+            in: importedPositionIds,
+          },
+          brokerAccount: {
+            userId,
           },
         },
-        notes: {
-          select: {
-            id: true,
+        include: {
+          actions: {
+            select: {
+              id: true,
+              brokerReference: true,
+            },
+          },
+          notes: {
+            select: {
+              id: true,
+            },
+          },
+          attachments: {
+            select: {
+              id: true,
+            },
+          },
+          tagLinks: {
+            select: {
+              id: true,
+            },
+          },
+          journalEntry: {
+            select: {
+              id: true,
+            },
+          },
+          sourceHoldings: {
+            select: {
+              id: true,
+            },
+          },
+          cashLedgerEntries: {
+            select: {
+              id: true,
+              externalReference: true,
+            },
           },
         },
-        attachments: {
-          select: {
-            id: true,
+      }),
+    importedHoldingIds.length === 0
+      ? Promise.resolve([])
+      : prisma.holding.findMany({
+        where: {
+          id: {
+            in: importedHoldingIds,
+          },
+          brokerAccount: {
+            userId,
           },
         },
-        tagLinks: {
-          select: {
-            id: true,
+        include: {
+          holdingEvents: {
+            select: {
+              id: true,
+              eventTimestamp: true,
+              createdAt: true,
+              notes: true,
+              linkedPositionActionId: true,
+            },
+            orderBy: [{ eventTimestamp: "asc" }, { createdAt: "asc" }],
+          },
+          linkedFromPositions: {
+            select: {
+              id: true,
+            },
+          },
+          cashLedgerEntries: {
+            select: {
+              id: true,
+              externalReference: true,
+            },
           },
         },
-        journalEntry: {
-          select: {
-            id: true,
-          },
-        },
-        sourceHoldings: {
-          select: {
-            id: true,
-          },
-        },
-        cashLedgerEntries: {
-          select: {
-            id: true,
-            externalReference: true,
-          },
-        },
-      },
-    });
+      }),
+  ]);
 
   const rollbackBlockers: string[] = [];
 
   for (const position of positions) {
-    const nonBatchActions = position.actions.filter((action) => !action.brokerReference?.startsWith(importPrefix));
+    const nonBatchActions = position.actions.filter((action) => !isImportedReference(action.brokerReference, importPrefix));
     if (nonBatchActions.length > 0) {
       rollbackBlockers.push(`Position ${position.underlyingSymbol} has actions that were not created by this import batch.`);
     }
@@ -174,10 +232,76 @@ export async function rollbackImportBatchForUser(userId: string, importBatchId: 
       rollbackBlockers.push(`Position ${position.underlyingSymbol} is linked to holding records.`);
     }
 
-    const nonBatchCashEntries = position.cashLedgerEntries.filter((entry) => !entry.externalReference?.startsWith(importPrefix));
+    const nonBatchCashEntries = position.cashLedgerEntries.filter((entry) => !isImportedReference(entry.externalReference, importPrefix));
     if (nonBatchCashEntries.length > 0) {
       rollbackBlockers.push(`Position ${position.underlyingSymbol} has cash ledger entries not created by this import batch.`);
     }
+  }
+
+  const holdingTargets: HoldingRollbackTarget[] = [];
+
+  for (const holding of touchedHoldings) {
+    const batchEvents = holding.holdingEvents.filter((event) =>
+      importedHoldingEventIdSet.has(event.id) ||
+      importedActionIdSet.has(event.linkedPositionActionId ?? "") ||
+      hasImportPrefix(event.notes, importPrefix),
+    );
+    const nonBatchEvents = holding.holdingEvents.filter((event) => !batchEvents.some((batchEvent) => batchEvent.id === event.id));
+
+    if (batchEvents.length === 0) {
+      continue;
+    }
+
+    let sawBatchEvent = false;
+    for (const event of holding.holdingEvents) {
+      const isBatchEvent = batchEvents.some((batchEvent) => batchEvent.id === event.id);
+      if (isBatchEvent) {
+        sawBatchEvent = true;
+        continue;
+      }
+
+      if (sawBatchEvent) {
+        rollbackBlockers.push(`Holding ${holding.symbol} has newer events after this import batch, so it cannot be undone automatically.`);
+        break;
+      }
+    }
+
+    const dependentPositions = holding.linkedFromPositions.filter((position) => !importedPositionIdSet.has(position.id));
+    if (dependentPositions.length > 0) {
+      rollbackBlockers.push(`Holding ${holding.symbol} is linked to positions not created by this import batch.`);
+    }
+
+    const nonBatchCashEntries = holding.cashLedgerEntries.filter((entry) => !isImportedReference(entry.externalReference, importPrefix));
+    if (nonBatchCashEntries.length > 0) {
+      rollbackBlockers.push(`Holding ${holding.symbol} has cash ledger entries not created by this import batch.`);
+    }
+
+    const holdingCreatedByBatch = hasImportPrefix(holding.notes, importPrefix);
+
+    if (holdingCreatedByBatch) {
+      if (nonBatchEvents.length > 0) {
+        rollbackBlockers.push(`Holding ${holding.symbol} has non-import events and cannot be deleted safely.`);
+        continue;
+      }
+
+      holdingTargets.push({
+        id: holding.id,
+        symbol: holding.symbol,
+        deleteHolding: true,
+      });
+      continue;
+    }
+
+    if (nonBatchEvents.length === 0) {
+      rollbackBlockers.push(`Holding ${holding.symbol} has no pre-import history, so this batch cannot be undone automatically.`);
+      continue;
+    }
+
+    holdingTargets.push({
+      id: holding.id,
+      symbol: holding.symbol,
+      deleteHolding: false,
+    });
   }
 
   if (rollbackBlockers.length > 0) {
@@ -185,6 +309,8 @@ export async function rollbackImportBatchForUser(userId: string, importBatchId: 
   }
 
   const uniquePositionIds = positions.map((position) => position.id);
+  const holdingIdsToDelete = holdingTargets.filter((target) => target.deleteHolding).map((target) => target.id);
+  const holdingIdsToRecompute = holdingTargets.filter((target) => !target.deleteHolding).map((target) => target.id);
 
   const deleted = await prisma.$transaction(async (tx) => {
     const deletedCashLedger = await tx.cashLedger.deleteMany({
@@ -206,6 +332,30 @@ export async function rollbackImportBatchForUser(userId: string, importBatchId: 
         ].filter(Boolean) as Array<Record<string, unknown>>,
       },
     });
+
+    const deletedHoldingEvents = importedHoldingEventIds.length === 0
+      ? { count: 0 }
+      : await tx.holdingEvent.deleteMany({
+        where: {
+          id: {
+            in: importedHoldingEventIds,
+          },
+        },
+      });
+
+    const deletedHoldings = holdingIdsToDelete.length === 0
+      ? { count: 0 }
+      : await tx.holding.deleteMany({
+        where: {
+          id: {
+            in: holdingIdsToDelete,
+          },
+        },
+      });
+
+    for (const holdingId of holdingIdsToRecompute) {
+      await syncHoldingFromEvents(holdingId, tx);
+    }
 
     const deletedActionLegChanges = importedActionIds.length === 0
       ? { count: 0 }
@@ -279,6 +429,8 @@ export async function rollbackImportBatchForUser(userId: string, importBatchId: 
       positions: deletedPositions.count,
       positionActions: deletedPositionActions.count,
       positionLegs: deletedPositionLegs.count,
+      holdings: deletedHoldings.count,
+      holdingEvents: deletedHoldingEvents.count,
       cashLedgerEntries: deletedCashLedger.count,
       rawTransactions: deletedRawTransactions.count,
       orders: deletedOrders.count,
@@ -287,12 +439,18 @@ export async function rollbackImportBatchForUser(userId: string, importBatchId: 
     };
   });
 
+  if (holdingIdsToRecompute.length > 0) {
+    await syncHoldingPnlSnapshots(holdingIdsToRecompute);
+  }
+
   return {
     importBatchId,
     deleted: {
       positions: deleted.positions,
       positionActions: deleted.positionActions,
       positionLegs: deleted.positionLegs,
+      holdings: deleted.holdings,
+      holdingEvents: deleted.holdingEvents,
       cashLedgerEntries: deleted.cashLedgerEntries,
       rawTransactions: deleted.rawTransactions,
       orders: deleted.orders,

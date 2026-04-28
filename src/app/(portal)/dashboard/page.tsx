@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { requireCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/prisma";
-import { calculateHoldingPnlSummary, formatCurrency, formatNumber } from "@/src/lib/pnl";
+import { formatCurrency, formatNumber } from "@/src/lib/pnl";
 import { calculateCashLedgerSummary } from "@/src/lib/cash-ledger";
 import {
   formatActiveBrokerLabel,
@@ -15,7 +15,7 @@ export default async function DashboardPage() {
   const workspace = await getWorkspacePreference();
   const brokerWhere = getBrokerScopedWhere(workspace.activeBrokerAccountId);
 
-  const [brokerAccountCount, positions, holdings, cashEntries] = await Promise.all([
+  const [brokerAccountCount, positions, holdings, cashEntries, positionsPnlAggregate, holdingsPnlAggregate] = await Promise.all([
     prisma.brokerAccount.count({
       where: { userId: user.id },
     }),
@@ -41,14 +41,10 @@ export default async function DashboardPage() {
             broker: true,
           },
         },
-        holdingEvents: {
+        pnlSnapshot: {
           select: {
-            eventType: true,
-            quantity: true,
-            pricePerShare: true,
-            amount: true,
-            feeAmount: true,
             currency: true,
+            estimatedOpenCost: true,
           },
         },
       },
@@ -57,6 +53,19 @@ export default async function DashboardPage() {
       where: brokerWhere,
       orderBy: [{ txnTimestamp: "desc" }, { createdAt: "desc" }],
       take: 100,
+    }),
+    prisma.positionPnlSnapshot.aggregate({
+      where: brokerWhere,
+      _sum: {
+        netCashFlow: true,
+      },
+    }),
+    prisma.holdingPnlSnapshot.aggregate({
+      where: brokerWhere,
+      _sum: {
+        estimatedRealizedPnl: true,
+        estimatedOpenCost: true,
+      },
     }),
   ]);
 
@@ -68,12 +77,11 @@ export default async function DashboardPage() {
   const activeHoldings = holdings.filter((holding) => Number(holding.remainingQuantity.toString()) > 0);
   const inactiveHoldings = holdings.length - activeHoldings.length;
   const cashSummary = calculateCashLedgerSummary(cashEntries);
-  const totalOpenHoldingCost = activeHoldings.reduce((sum, holding) => {
-    const pnl = calculateHoldingPnlSummary(holding);
-    return sum + pnl.estimatedOpenCost;
-  }, 0);
+  const totalPositionsPnl = Number(positionsPnlAggregate._sum.netCashFlow?.toString() ?? 0);
+  const totalHoldingsPnl = Number(holdingsPnlAggregate._sum.estimatedRealizedPnl?.toString() ?? 0);
+  const totalOpenHoldingCost = Number(holdingsPnlAggregate._sum.estimatedOpenCost?.toString() ?? 0);
   const dashboardCurrency =
-    holdings[0]?.holdingEvents[0]?.currency ??
+    holdings[0]?.pnlSnapshot?.currency ??
     cashEntries[0]?.currency ??
     workspace.activeBrokerAccount?.baseCurrency ??
     "USD";
@@ -133,6 +141,18 @@ export default async function DashboardPage() {
 
         <div className="stats-grid">
           <div className="stat-card">
+            <p className="stat-label">Positions PnL</p>
+            <p className={totalPositionsPnl >= 0 ? "stat-value-positive" : "stat-value-negative"}>
+              {formatCurrency(totalPositionsPnl, dashboardCurrency)}
+            </p>
+          </div>
+          <div className="stat-card">
+            <p className="stat-label">Holdings PnL</p>
+            <p className={totalHoldingsPnl >= 0 ? "stat-value-positive" : "stat-value-negative"}>
+              {formatCurrency(totalHoldingsPnl, dashboardCurrency)}
+            </p>
+          </div>
+          <div className="stat-card">
             <p className="stat-label">Open Positions</p>
             <p className="stat-value">{activePositions}</p>
           </div>
@@ -140,19 +160,15 @@ export default async function DashboardPage() {
             <p className="stat-label">Active Holdings</p>
             <p className="stat-value">{activeHoldings.length}</p>
           </div>
-          <div className="stat-card">
-            <p className="stat-label">Inactive Holdings</p>
-            <p className="stat-value">{inactiveHoldings}</p>
-          </div>
+        </div>
+
+        <div className="stats-grid">
           <div className="stat-card">
             <p className="stat-label">Active Broker Cash</p>
             <p className={cashSummary.currentBalance >= 0 ? "stat-value-positive" : "stat-value-negative"}>
               {formatCurrency(cashSummary.currentBalance, cashSummary.currency)}
             </p>
           </div>
-        </div>
-
-        <div className="stats-grid">
           <div className="stat-card">
             <p className="stat-label">Open Holding Cost</p>
             <p className="stat-value">{formatCurrency(totalOpenHoldingCost, dashboardCurrency)}</p>
@@ -161,7 +177,10 @@ export default async function DashboardPage() {
             <p className="stat-label">Ledger Entries</p>
             <p className="stat-value">{cashEntries.length}</p>
           </div>
-
+          <div className="stat-card">
+            <p className="stat-label">Inactive Holdings</p>
+            <p className="stat-value">{inactiveHoldings}</p>
+          </div>
         </div>
       </section>
 
@@ -215,8 +234,9 @@ export default async function DashboardPage() {
             ) : (
               <ul className="list-stack">
                 {activeHoldings.slice(0, 4).map((holding) => {
-                  const pnl = calculateHoldingPnlSummary(holding);
                   const remainingShares = Number(holding.remainingQuantity.toString());
+                  const estimatedOpenCost = Number(holding.pnlSnapshot?.estimatedOpenCost?.toString() ?? 0);
+                  const pnlCurrency = holding.pnlSnapshot?.currency ?? dashboardCurrency;
 
                   return (
                     <li key={holding.id} className="list-card">
@@ -231,7 +251,7 @@ export default async function DashboardPage() {
                           </div>
                           <div className="text-right">
                             <p className="meta-label">Open Cost</p>
-                            <p className="meta-value">{formatCurrency(pnl.estimatedOpenCost, pnl.currency)}</p>
+                            <p className="meta-value">{formatCurrency(estimatedOpenCost, pnlCurrency)}</p>
                           </div>
                         </div>
                       </Link>

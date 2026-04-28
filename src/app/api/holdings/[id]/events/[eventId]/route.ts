@@ -4,6 +4,7 @@ import { getCurrentUser, redirectToLoginResponse } from "../../../../../../lib/a
 import { deleteCashLedgerEntriesForHoldingEvent, syncCashLedgerEntriesForHoldingEvent } from "../../../../../../lib/cash-ledger-sync";
 import { calculateHoldingStateFromEvents, parseHoldingNumberInput, syncHoldingFromEvents } from "../../../../../../lib/holding-rules";
 import { findOwnedHoldingForUser } from "../../../../../../lib/ownership";
+import { syncHoldingPnlSnapshot } from "../../../../../../lib/pnl-snapshots";
 import { prisma } from "../../../../../../lib/prisma";
 
 const QUANTITY_REQUIRED_EVENT_TYPES = new Set([
@@ -100,6 +101,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     await deleteCashLedgerEntriesForHoldingEvent(eventId);
     await prisma.holdingEvent.delete({ where: { id: eventId } });
     await syncHoldingFromEvents(id, prisma);
+    await syncHoldingPnlSnapshot(id);
 
     return redirectWithMessage(req, id, "success", "Holding event deleted successfully.");
   }
@@ -181,6 +183,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   await syncHoldingFromEvents(id, prisma);
   await syncCashLedgerEntriesForHoldingEvent(eventId);
+  await syncHoldingPnlSnapshot(id);
 
   return redirectWithMessage(req, id, "success", "Holding event updated successfully.");
 }

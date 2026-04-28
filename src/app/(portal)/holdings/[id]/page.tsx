@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { HoldingDetailModals } from "./holding-detail-modals";
 import { HoldingEventList } from "./holding-event-list";
-import { calculateHoldingPnlSummary, formatCurrency, formatNumber } from "@/src/lib/pnl";
+import { formatCurrency, formatNumber } from "@/src/lib/pnl";
 import { findOwnedHoldingForUser } from "@/src/lib/ownership";
 import { requireCurrentUser } from "@/src/lib/auth";
 import { formatBrokerAccountLabel } from "@/src/lib/workspace-preference";
@@ -56,18 +56,28 @@ export default async function HoldingDetailPage({ params, searchParams }: PagePr
       },
       orderBy: { eventTimestamp: "desc" },
     },
+    pnlSnapshot: true,
   });
 
   if (!holding) {
     notFound();
   }
 
-  const pnlSummary = calculateHoldingPnlSummary(holding);
   const remainingQuantityValue = Number(holding.remainingQuantity.toString());
   const hasPositionLinks = Boolean(holding.linkedPosition) || holding.linkedFromPositions.length > 0;
   const canArchive = remainingQuantityValue <= 0 && holding.linkedFromPositions.length === 0;
   const isHoldingInactive = holding.holdingStatus === "ARCHIVED" || remainingQuantityValue <= 0;
   const brokerLabel = formatBrokerAccountLabel(holding.brokerAccount);
+  const pnlSummary = {
+    currency: holding.pnlSnapshot?.currency ?? holding.brokerAccount?.baseCurrency ?? "USD",
+    acquiredShares: Number(holding.pnlSnapshot?.acquiredShares?.toString() ?? 0),
+    soldShares: Number(holding.pnlSnapshot?.soldShares?.toString() ?? 0),
+    grossPurchaseCost: Number(holding.pnlSnapshot?.grossPurchaseCost?.toString() ?? 0),
+    grossSaleProceeds: Number(holding.pnlSnapshot?.grossSaleProceeds?.toString() ?? 0),
+    totalFees: Number(holding.pnlSnapshot?.totalFees?.toString() ?? 0),
+    estimatedRealizedPnl: Number(holding.pnlSnapshot?.estimatedRealizedPnl?.toString() ?? 0),
+    estimatedOpenCost: Number(holding.pnlSnapshot?.estimatedOpenCost?.toString() ?? 0),
+  };
 
   return (
     <main className="page-shell">
@@ -129,7 +139,7 @@ export default async function HoldingDetailPage({ params, searchParams }: PagePr
       <section className="section-stack">
         <div>
           <h3 className="section-heading">Holding PnL Summary</h3>
-          <p className="section-copy">Estimated from recorded holding events, using acquisition history and opening fees first, then falling back to the stored cost basis when needed.</p>
+          <p className="section-copy">Estimated from the cached holding snapshot so detail screens stay fast even when event history grows.</p>
         </div>
 
         <div className="stats-grid">
@@ -169,7 +179,7 @@ export default async function HoldingDetailPage({ params, searchParams }: PagePr
         </div>
 
         <p className="note">
-          This holding summary uses recorded acquisition events and their fees to estimate average cost basis when available, and falls back to the stored holding cost basis otherwise. It is not tax-lot accounting.
+          Snapshot values are refreshed whenever holding events change. They are still estimate-based and not tax-lot accounting.
         </p>
       </section>
 

@@ -2,16 +2,26 @@ const POSITIVE_CASH_TXN_TYPES = new Set([
   "DEPOSIT",
   "DIVIDEND",
   "INTEREST",
+  "STOCK_SALE",
   "TRANSFER_IN",
 ]);
 
 const NEGATIVE_CASH_TXN_TYPES = new Set([
   "WITHDRAWAL",
+  "STOCK_PURCHASE",
   "FEE",
   "COMMISSION",
   "TAX",
   "TRANSFER_OUT",
 ]);
+
+export function formatCashTxnType(txnType: string) {
+  return txnType
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
 
 function toNumber(value: unknown): number {
   if (value === null || value === undefined) {

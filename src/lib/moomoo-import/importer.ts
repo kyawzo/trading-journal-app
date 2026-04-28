@@ -6,7 +6,7 @@ import {
   HoldingStatus,
   ImportBatchStatus,
   ImportSourceType,
-  type CashTxnType,
+  CashTxnType,
   LegSide,
   LegStatus,
   LegType,
@@ -18,11 +18,14 @@ import {
   StrategyType,
 } from "@prisma/client";
 import { createHash } from "node:crypto";
+import { syncPnlSnapshotsForImportBatch } from "@/src/lib/pnl-snapshots";
 import { prisma } from "@/src/lib/prisma";
 import { getPositionStrategyLegTemplate } from "@/src/lib/position-leg-templates";
 import { parseMoomooCsvPreview, type MoomooPreviewRow } from "./parser";
 
 const IMPORTER_VERSION = "moomoo-v1";
+const STOCK_PURCHASE_TXN_TYPE = "STOCK_PURCHASE" as CashTxnType;
+const STOCK_SALE_TXN_TYPE = "STOCK_SALE" as CashTxnType;
 
 type ImportMoomooCsvInput = {
   brokerAccountId: string;
@@ -1087,7 +1090,7 @@ async function ensurePositionForSpreadBundle(input: {
       {
         brokerAccountId,
         txnTimestamp: actionTimestamp,
-        txnType: "OTHER",
+        txnType: CashTxnType.OPTIONS_PREMIUM,
         amount: toDecimalString(primaryCashAmount),
         currency: "USD",
         linkedPositionId: existingSpread.position.id,
@@ -1198,7 +1201,7 @@ async function ensurePositionForSpreadBundle(input: {
     {
       brokerAccountId,
       txnTimestamp: actionTimestamp,
-      txnType: "OTHER",
+      txnType: CashTxnType.OPTIONS_PREMIUM,
       amount: toDecimalString(primaryCashAmount),
       currency: "USD",
       linkedPositionId: position.id,
@@ -1398,7 +1401,7 @@ async function ensurePositionRollFromSpreadSummaryRow(input: {
     {
       brokerAccountId,
       txnTimestamp: actionTimestamp,
-      txnType: "OTHER",
+      txnType: CashTxnType.OPTIONS_PREMIUM,
       amount: toDecimalString(primaryCashAmount),
       currency: "USD",
       linkedPositionId: basePosition.id,
@@ -1646,7 +1649,7 @@ async function ensureHoldingForRow(
     ledgerEntries.push({
       brokerAccountId,
       txnTimestamp: eventTimestamp,
-      txnType: "OTHER" as const,
+      txnType: STOCK_PURCHASE_TXN_TYPE,
       amount: toDecimalString(-grossAmount),
       currency: "USD",
       linkedHoldingId: holding.id,
@@ -1657,7 +1660,7 @@ async function ensureHoldingForRow(
     ledgerEntries.push({
       brokerAccountId,
       txnTimestamp: eventTimestamp,
-      txnType: "OTHER" as const,
+      txnType: STOCK_SALE_TXN_TYPE,
       amount: toDecimalString(grossAmount),
       currency: "USD",
       linkedHoldingId: holding.id,
@@ -1803,7 +1806,7 @@ async function ensurePositionForRow(
         {
           brokerAccountId,
           txnTimestamp: actionTimestamp,
-          txnType: "OTHER",
+          txnType: CashTxnType.OPTIONS_PREMIUM,
           amount: toDecimalString(primaryCashAmount),
           currency: "USD",
           linkedPositionId: existingSpread.position.id,
@@ -1905,7 +1908,7 @@ async function ensurePositionForRow(
         {
           brokerAccountId,
           txnTimestamp: actionTimestamp,
-          txnType: "OTHER",
+          txnType: CashTxnType.OPTIONS_PREMIUM,
           amount: toDecimalString(-premiumNotional),
           currency: "USD",
           linkedPositionId: existingShort.position.id,
@@ -2007,7 +2010,7 @@ async function ensurePositionForRow(
         {
           brokerAccountId,
           txnTimestamp: actionTimestamp,
-          txnType: "OTHER",
+          txnType: CashTxnType.OPTIONS_PREMIUM,
           amount: toDecimalString(premiumNotional),
           currency: "USD",
           linkedPositionId: existingLong.position.id,
@@ -2114,7 +2117,7 @@ async function ensurePositionForRow(
         {
           brokerAccountId,
           txnTimestamp: actionTimestamp,
-          txnType: "OTHER",
+          txnType: CashTxnType.OPTIONS_PREMIUM,
           amount: toDecimalString(premiumNotional),
           currency: "USD",
           linkedPositionId: rollCandidate.id,
@@ -2250,7 +2253,7 @@ async function ensurePositionForRow(
     {
       brokerAccountId,
       txnTimestamp: actionTimestamp,
-      txnType: "OTHER" as const,
+      txnType: CashTxnType.OPTIONS_PREMIUM,
       amount: toDecimalString(actionType === PositionActionType.STO ? premiumNotional : -premiumNotional),
       currency: "USD",
       linkedPositionId: position.id,
@@ -2551,6 +2554,8 @@ export async function importMoomooCsv(input: ImportMoomooCsvInput): Promise<Impo
         : "Import completed successfully.",
     },
   });
+
+  await syncPnlSnapshotsForImportBatch(importBatch.id);
 
   return {
     importBatchId: importBatch.id,

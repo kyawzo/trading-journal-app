@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, redirectToLoginResponse } from "../../../../../../lib/auth";
 import { deleteCashLedgerEntriesForPositionAction, syncCashLedgerEntriesForPositionAction } from "../../../../../../lib/cash-ledger-sync";
 import { findOwnedPositionActionForUser } from "../../../../../../lib/ownership";
+import { syncPositionPnlSnapshot } from "../../../../../../lib/pnl-snapshots";
 import { parseNumericInput, syncPositionStatusFromActions } from "../../../../../../lib/position-rules";
 import { prisma } from "../../../../../../lib/prisma";
 
@@ -105,6 +106,7 @@ export async function POST(req: Request, { params }: RouteProps) {
     await deleteCashLedgerEntriesForPositionAction(actionId);
     await prisma.positionAction.delete({ where: { id: actionId } });
     await syncPositionStatusFromActions(id);
+    await syncPositionPnlSnapshot(id);
     return redirectWithMessage(req, id, "success", "Action deleted successfully.");
   }
 
@@ -188,6 +190,7 @@ export async function POST(req: Request, { params }: RouteProps) {
 
   await syncCashLedgerEntriesForPositionAction(actionId);
   await syncPositionStatusFromActions(id);
+  await syncPositionPnlSnapshot(id);
 
   return redirectWithMessage(req, id, "success", "Action updated successfully.");
 }

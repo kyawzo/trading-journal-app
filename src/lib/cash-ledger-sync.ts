@@ -1,5 +1,8 @@
-import type { CashTxnType } from "@prisma/client";
+import { CashTxnType } from "@prisma/client";
 import { prisma } from "./prisma";
+
+const STOCK_PURCHASE_TXN_TYPE = "STOCK_PURCHASE" as CashTxnType;
+const STOCK_SALE_TXN_TYPE = "STOCK_SALE" as CashTxnType;
 
 const OPTION_PREMIUM_ACTION_TYPES = new Set([
   "STO",
@@ -138,10 +141,10 @@ function buildPrimaryLedgerEntry(action: {
 
   if (CASH_INFLOW_ACTION_TYPES.has(action.actionType)) {
     const txnType: CashTxnType = action.actionType === "DIVIDEND"
-      ? "DIVIDEND"
+      ? CashTxnType.DIVIDEND
       : action.actionType === "INTEREST"
-        ? "INTEREST"
-        : "OTHER";
+        ? CashTxnType.INTEREST
+        : CashTxnType.OPTIONS_PREMIUM;
 
     return {
       brokerAccountId: action.position.brokerAccountId,
@@ -156,7 +159,7 @@ function buildPrimaryLedgerEntry(action: {
   }
 
   if (CASH_OUTFLOW_ACTION_TYPES.has(action.actionType)) {
-    const txnType: CashTxnType = action.actionType === "FEE" ? "FEE" : "OTHER";
+    const txnType: CashTxnType = action.actionType === "FEE" ? CashTxnType.FEE : CashTxnType.OPTIONS_PREMIUM;
 
     return {
       brokerAccountId: action.position.brokerAccountId,
@@ -224,7 +227,7 @@ function buildHoldingEventPrimaryLedgerEntry(event: {
   }
 
   if (HOLDING_INFLOW_EVENT_TYPES.has(event.eventType)) {
-    const txnType: CashTxnType = event.eventType === "DIVIDEND" ? "DIVIDEND" : "OTHER";
+    const txnType: CashTxnType = event.eventType === "DIVIDEND" ? CashTxnType.DIVIDEND : STOCK_SALE_TXN_TYPE;
 
     return {
       brokerAccountId: event.holding.brokerAccountId,
@@ -242,7 +245,7 @@ function buildHoldingEventPrimaryLedgerEntry(event: {
     return {
       brokerAccountId: event.holding.brokerAccountId,
       txnTimestamp: event.eventTimestamp,
-      txnType: "OTHER",
+      txnType: STOCK_PURCHASE_TXN_TYPE,
       amount: (-Math.abs(amount)).toString(),
       currency: event.currency || "USD",
       linkedHoldingId: event.holding.id,

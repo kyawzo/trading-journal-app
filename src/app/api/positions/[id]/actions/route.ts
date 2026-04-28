@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser, redirectToLoginResponse } from "../../../../../lib/auth";
 import { syncCashLedgerEntriesForHoldingEvent, syncCashLedgerEntriesForPositionAction } from "../../../../../lib/cash-ledger-sync";
 import { findOwnedPositionForUser } from "../../../../../lib/ownership";
+import { syncHoldingPnlSnapshot, syncPositionPnlSnapshot } from "../../../../../lib/pnl-snapshots";
 import { prisma } from "../../../../../lib/prisma";
 
 type RouteProps = {
@@ -292,9 +293,11 @@ export async function POST(req: Request, { params }: RouteProps) {
     });
 
     await syncCashLedgerEntriesForHoldingEvent(createdHoldingEvent.id);
+    await syncHoldingPnlSnapshot(createdHolding.id);
   }
 
   await syncCashLedgerEntriesForPositionAction(createdAction.id);
+  await syncPositionPnlSnapshot(id);
 
   return respondWithMessage(req, id, "success", "Action added successfully.");
 }
