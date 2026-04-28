@@ -1,6 +1,7 @@
 import { ThemeMode } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { getCurrentUser, redirectToLoginResponse, safeRedirectPathFromReferer } from "@/src/lib/auth";
+import { validateBackupFolderPath } from "@/src/lib/database-backup";
 import { prisma } from "@/src/lib/prisma";
 
 function redirectToReferer(req: Request, fallbackPath: string, tone?: "success" | "error", notice?: string) {
@@ -61,6 +62,22 @@ export async function POST(req: Request) {
     });
 
     return redirectToReferer(req, "/dashboard", "success", "Active broker updated successfully.");
+  }
+
+  if (intent === "set-backup-folder") {
+    const backupFolderPathInput = ((form.get("backupFolderPath") as string) || "").trim();
+    const validationError = validateBackupFolderPath(backupFolderPathInput);
+
+    if (validationError) {
+      return redirectToReferer(req, "/settings", "error", validationError);
+    }
+
+    await prisma.userPreference.update({
+      where: { userId: user.id },
+      data: { backupFolderPath: backupFolderPathInput },
+    });
+
+    return redirectToReferer(req, "/settings", "success", "Backup folder path saved.");
   }
 
   return redirectToReferer(req, "/settings", "error", "Unknown workspace preference action.");
