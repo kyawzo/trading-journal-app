@@ -45,7 +45,6 @@ export function HoldingsPageModal({
                   <label className="field-stack"><span className="field-label">Symbol</span><input name="symbol" className="input-field" placeholder="AAPL" required /></label>
                   <label className="field-stack"><span className="field-label">Source Type</span><select name="sourceType" defaultValue="MANUAL_BUY" className="select-field"><option value="MANUAL_BUY">Manual Buy</option><option value="TRANSFER_IN">Transfer In</option><option value="OTHER">Other</option></select></label>
                   <label className="field-stack"><span className="field-label">Opened At</span><input name="openedAt" type="datetime-local" defaultValue={defaultOpenedAt} className="input-field" required /></label>
-                  <label className="field-stack"><span className="field-label">Currency</span><select name="currency" defaultValue="USD" className="select-field"><option value="USD">USD</option><option value="SGD">SGD</option></select></label>
                   <label className="field-stack"><span className="field-label">Share Quantity</span><input name="quantity" type="number" step="0.0001" className="input-field" required /></label>
                   <label className="field-stack"><span className="field-label">Cost Basis Per Share</span><input name="costBasisPerShare" type="number" step="0.0001" className="input-field" required /></label>
                   <label className="field-stack"><span className="field-label">Opening Fee</span><input name="feeAmount" type="number" step="0.01" defaultValue="0" className="input-field" /></label>
@@ -53,7 +52,7 @@ export function HoldingsPageModal({
 
                 <label className="field-stack"><span className="field-label">Notes</span><textarea name="notes" rows={3} className="textarea-field min-h-24" placeholder="Manual stock buy, transfer from another broker, long-term core holding..." /></label>
 
-                <p className="note">Manual buys create an <code>ACQUIRED</code> event and post stock cash outflow. <code>TRANSFER_IN</code> creates the holding without cash movement.</p>
+                <p className="note">Manual buys create an <code>ACQUIRED</code> event and post stock cash outflow. <code>TRANSFER_IN</code> creates the holding without cash movement. Currency follows the active broker account.</p>
                 </div>
 
                 <div className="modal-actions pt-6" style={{ borderTop: "1px solid var(--line)" }}>

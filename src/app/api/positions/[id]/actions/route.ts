@@ -115,7 +115,6 @@ export async function POST(req: Request, { params }: RouteProps) {
   const actionType = (form.get("actionType") as string)?.trim();
   const amountRaw = form.get("amount") as string | null;
   const feeAmountRaw = form.get("feeAmount") as string | null;
-  const currency = ((form.get("currency") as string) || "USD").trim();
   const quantityRaw = form.get("quantity") as string | null;
   const premiumRaw = ((form.get("premium") as string | null) ?? (form.get("premiumPerUnit") as string | null));
   const resultingStatusRaw = form.get("resultingStatus") as string | null;
@@ -138,11 +137,13 @@ export async function POST(req: Request, { params }: RouteProps) {
 
   const position = await findOwnedPositionForUser(user.id, id, {
     linkedHolding: true,
+    brokerAccount: true,
   });
 
   if (!position) {
     return respondWithMessage(req, id, "error", "Position not found.");
   }
+  const currency = position.brokerAccount?.baseCurrency ?? "USD";
 
   if (feeAmount < 0) {
     return respondWithMessage(req, id, "error", "Fee amount cannot be negative.");

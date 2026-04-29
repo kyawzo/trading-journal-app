@@ -32,7 +32,6 @@ export async function POST(req: Request, { params }: RouteProps) {
   const actionTimestampRaw = ((form.get("actionTimestamp") as string) || "").trim();
   const premiumRaw = (((form.get("premium") as string | null) ?? (form.get("premiumPerUnit") as string | null))?.trim()) || null;
   const feeAmountRaw = (form.get("feeAmount") as string | null)?.trim() || null;
-  const currency = ((form.get("currency") as string) || "USD").trim();
   const quantityRaw = (form.get("quantity") as string | null)?.trim() || null;
   const resultingStatus = (form.get("resultingStatus") as string | null)?.trim() || null;
   const disciplineRating = ((form.get("disciplineRating") as string) || "UNRATED").trim();
@@ -54,11 +53,13 @@ export async function POST(req: Request, { params }: RouteProps) {
   const position = await findOwnedPositionForUser(user.id, id, {
     linkedHolding: true,
     legs: true,
+    brokerAccount: true,
   });
 
   if (!position) {
     return jsonErrorResponse("Position not found.");
   }
+  const currency = position.brokerAccount?.baseCurrency ?? "USD";
 
   const strikeByLegId: Record<string, string> = {};
   for (const legId of selectedLegIds) {

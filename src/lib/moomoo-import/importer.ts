@@ -899,8 +899,10 @@ async function ensurePositionExpiredWorthlessBundle(input: {
   componentRows: MoomooPreviewRow[];
   brokerAccountId: string;
   importBatchId: string;
+  importCurrency: string;
 }) {
   const { componentRows, brokerAccountId, importBatchId } = input;
+  const { importCurrency } = input;
   const spreadLegs = buildSpreadLegsFromComponentRows(componentRows);
   if (spreadLegs.length < 2) {
     throw new Error("Unable to parse expired option bundle contracts.");
@@ -983,7 +985,7 @@ async function ensurePositionExpiredWorthlessBundle(input: {
       actionEffect: ActionEffectType.EXPIRE,
       amount: "0",
       feeAmount: "0",
-      currency: "USD",
+      currency: importCurrency,
       quantity: toDecimalString(quantity),
       premiumPerUnit: "0",
       resultingStatus,
@@ -1004,8 +1006,9 @@ async function ensurePositionForSpreadBundle(input: {
   componentRows: MoomooPreviewRow[];
   brokerAccountId: string;
   importBatchId: string;
+  importCurrency: string;
 }) {
-  const { summaryRow, componentRows, brokerAccountId, importBatchId } = input;
+  const { summaryRow, componentRows, brokerAccountId, importBatchId, importCurrency } = input;
   const actionTimestamp = toDateOrNow(summaryRow.eventTimestamp);
   const quantity = summaryRow.quantity ?? componentRows[0]?.quantity ?? 0;
   const premiumPerUnit = summaryRow.price ?? 0;
@@ -1062,7 +1065,7 @@ async function ensurePositionForSpreadBundle(input: {
         actionEffect: ActionEffectType.CLOSE,
         amount: toDecimalString(premiumPerUnit),
         feeAmount: toDecimalString(feeAmount),
-        currency: "USD",
+        currency: importCurrency,
         quantity: toDecimalString(quantity),
         premiumPerUnit: toDecimalString(premiumPerUnit),
         resultingStatus: PositionStatus.CLOSED,
@@ -1092,7 +1095,7 @@ async function ensurePositionForSpreadBundle(input: {
         txnTimestamp: actionTimestamp,
         txnType: CashTxnType.OPTIONS_PREMIUM,
         amount: toDecimalString(primaryCashAmount),
-        currency: "USD",
+        currency: importCurrency,
         linkedPositionId: existingSpread.position.id,
         description: `Imported ${closeActionType} premium for ${summaryRow.symbol}`,
         externalReference: `${importReference}:POSITION:PRIMARY`,
@@ -1105,7 +1108,7 @@ async function ensurePositionForSpreadBundle(input: {
         txnTimestamp: actionTimestamp,
         txnType: "COMMISSION",
         amount: toDecimalString(-feeAmount),
-        currency: "USD",
+        currency: importCurrency,
         linkedPositionId: existingSpread.position.id,
         description: `Imported position fee for ${summaryRow.symbol}`,
         externalReference: `${importReference}:POSITION:FEE`,
@@ -1175,7 +1178,7 @@ async function ensurePositionForSpreadBundle(input: {
       actionEffect: ActionEffectType.OPEN,
       amount: toDecimalString(premiumPerUnit),
       feeAmount: toDecimalString(feeAmount),
-      currency: "USD",
+      currency: importCurrency,
       quantity: toDecimalString(quantity),
       premiumPerUnit: toDecimalString(premiumPerUnit),
       resultingStatus: PositionStatus.OPEN,
@@ -1203,7 +1206,7 @@ async function ensurePositionForSpreadBundle(input: {
       txnTimestamp: actionTimestamp,
       txnType: CashTxnType.OPTIONS_PREMIUM,
       amount: toDecimalString(primaryCashAmount),
-      currency: "USD",
+      currency: importCurrency,
       linkedPositionId: position.id,
       description: `Imported ${actionType} premium for ${summaryRow.symbol}`,
       externalReference: `${importReference}:POSITION:PRIMARY`,
@@ -1216,7 +1219,7 @@ async function ensurePositionForSpreadBundle(input: {
       txnTimestamp: actionTimestamp,
       txnType: "COMMISSION",
       amount: toDecimalString(-feeAmount),
-      currency: "USD",
+      currency: importCurrency,
       linkedPositionId: position.id,
       description: `Imported position fee for ${summaryRow.symbol}`,
       externalReference: `${importReference}:POSITION:FEE`,
@@ -1237,8 +1240,9 @@ async function ensurePositionRollFromSpreadSummaryRow(input: {
   componentRows: MoomooPreviewRow[];
   brokerAccountId: string;
   importBatchId: string;
+  importCurrency: string;
 }) {
-  const { summaryRow, componentRows, brokerAccountId, importBatchId } = input;
+  const { summaryRow, componentRows, brokerAccountId, importBatchId, importCurrency } = input;
 
   const quantity = summaryRow.quantity ?? componentRows[0]?.quantity ?? 0;
   const premiumPerUnit = summaryRow.price ?? 0;
@@ -1373,7 +1377,7 @@ async function ensurePositionRollFromSpreadSummaryRow(input: {
       actionEffect: ActionEffectType.ROLL,
       amount: toDecimalString(premiumPerUnit),
       feeAmount: toDecimalString(feeAmount),
-      currency: "USD",
+      currency: importCurrency,
       quantity: toDecimalString(quantity),
       premiumPerUnit: toDecimalString(premiumPerUnit),
       resultingStatus: PositionStatus.OPEN,
@@ -1403,7 +1407,7 @@ async function ensurePositionRollFromSpreadSummaryRow(input: {
       txnTimestamp: actionTimestamp,
       txnType: CashTxnType.OPTIONS_PREMIUM,
       amount: toDecimalString(primaryCashAmount),
-      currency: "USD",
+      currency: importCurrency,
       linkedPositionId: basePosition.id,
       description: `Imported ${actionType} premium for ${summaryRow.symbol}`,
       externalReference: `${importReference}:POSITION:PRIMARY`,
@@ -1416,7 +1420,7 @@ async function ensurePositionRollFromSpreadSummaryRow(input: {
         txnTimestamp: actionTimestamp,
         txnType: "COMMISSION",
         amount: toDecimalString(-feeAmount),
-        currency: "USD",
+        currency: importCurrency,
         linkedPositionId: basePosition.id,
         description: `Imported position fee for ${summaryRow.symbol}`,
         externalReference: `${importReference}:POSITION:FEE`,
@@ -1436,6 +1440,7 @@ async function ensureHoldingForRow(
   row: MoomooPreviewRow,
   brokerAccountId: string,
   importBatchId: string,
+  importCurrency: string,
 ) {
   const quantity = row.quantity ?? 0;
   const pricePerShare = row.price ?? 0;
@@ -1497,7 +1502,7 @@ async function ensureHoldingForRow(
         pricePerShare: toDecimalString(pricePerShare),
         amount: toDecimalString(quantity * pricePerShare),
         feeAmount: "0",
-        currency: "USD",
+        currency: importCurrency,
         notes: `Auto-seeded opening inventory for import (${importReference})`,
       },
     });
@@ -1571,7 +1576,7 @@ async function ensureHoldingForRow(
           pricePerShare: toDecimalString(pricePerShare),
           amount: toDecimalString(deficitAmount),
           feeAmount: "0",
-          currency: "USD",
+          currency: importCurrency,
           notes: `Auto-seeded missing opening quantity for import (${importReference})`,
         },
       });
@@ -1627,7 +1632,7 @@ async function ensureHoldingForRow(
       pricePerShare: toDecimalString(pricePerShare),
       amount: toDecimalString(amount),
       feeAmount: toDecimalString(feeAmount),
-      currency: "USD",
+      currency: importCurrency,
       notes: `Imported from MooMoo (${importReference})`,
     },
   });
@@ -1651,7 +1656,7 @@ async function ensureHoldingForRow(
       txnTimestamp: eventTimestamp,
       txnType: STOCK_PURCHASE_TXN_TYPE,
       amount: toDecimalString(-grossAmount),
-      currency: "USD",
+      currency: importCurrency,
       linkedHoldingId: holding.id,
       description: `Imported ${eventType} for ${holding.symbol}`,
       externalReference: `${importReference}:HOLDING:PRIMARY`,
@@ -1662,7 +1667,7 @@ async function ensureHoldingForRow(
       txnTimestamp: eventTimestamp,
       txnType: STOCK_SALE_TXN_TYPE,
       amount: toDecimalString(grossAmount),
-      currency: "USD",
+      currency: importCurrency,
       linkedHoldingId: holding.id,
       description: `Imported ${eventType} for ${holding.symbol}`,
       externalReference: `${importReference}:HOLDING:PRIMARY`,
@@ -1675,7 +1680,7 @@ async function ensureHoldingForRow(
       txnTimestamp: eventTimestamp,
       txnType: "COMMISSION" as const,
       amount: toDecimalString(-feeAmount),
-      currency: "USD",
+      currency: importCurrency,
       linkedHoldingId: holding.id,
       description: `Imported holding fee for ${holding.symbol}`,
       externalReference: `${importReference}:HOLDING:FEE`,
@@ -1697,6 +1702,7 @@ async function ensurePositionForRow(
   row: MoomooPreviewRow,
   brokerAccountId: string,
   importBatchId: string,
+  importCurrency: string,
 ) {
   const quantity = row.quantity ?? 0;
   const premiumPerUnit = row.price ?? 0;
@@ -1778,7 +1784,7 @@ async function ensurePositionForRow(
           actionEffect: ActionEffectType.CLOSE,
           amount: toDecimalString(premiumPerUnit),
           feeAmount: toDecimalString(feeAmount),
-          currency: "USD",
+          currency: importCurrency,
           quantity: toDecimalString(quantity),
           premiumPerUnit: toDecimalString(premiumPerUnit),
           resultingStatus: PositionStatus.CLOSED,
@@ -1808,7 +1814,7 @@ async function ensurePositionForRow(
           txnTimestamp: actionTimestamp,
           txnType: CashTxnType.OPTIONS_PREMIUM,
           amount: toDecimalString(primaryCashAmount),
-          currency: "USD",
+          currency: importCurrency,
           linkedPositionId: existingSpread.position.id,
           description: `Imported ${closeActionType} premium for ${row.symbol}`,
           externalReference: `${importReference}:POSITION:PRIMARY`,
@@ -1821,7 +1827,7 @@ async function ensurePositionForRow(
           txnTimestamp: actionTimestamp,
           txnType: "COMMISSION",
           amount: toDecimalString(-feeAmount),
-          currency: "USD",
+          currency: importCurrency,
           linkedPositionId: existingSpread.position.id,
           description: `Imported position fee for ${row.symbol}`,
           externalReference: `${importReference}:POSITION:FEE`,
@@ -1884,7 +1890,7 @@ async function ensurePositionForRow(
           actionEffect: nextPositionStatus === PositionStatus.CLOSED ? ActionEffectType.CLOSE : ActionEffectType.REDUCE,
           amount: toDecimalString(premiumPerUnit),
           feeAmount: toDecimalString(feeAmount),
-          currency: "USD",
+          currency: importCurrency,
           quantity: toDecimalString(quantity),
           premiumPerUnit: toDecimalString(premiumPerUnit),
           resultingStatus: nextPositionStatus,
@@ -1910,7 +1916,7 @@ async function ensurePositionForRow(
           txnTimestamp: actionTimestamp,
           txnType: CashTxnType.OPTIONS_PREMIUM,
           amount: toDecimalString(-premiumNotional),
-          currency: "USD",
+          currency: importCurrency,
           linkedPositionId: existingShort.position.id,
           description: `Imported BTC premium for ${row.symbol}`,
           externalReference: `${importReference}:POSITION:PRIMARY`,
@@ -1923,7 +1929,7 @@ async function ensurePositionForRow(
           txnTimestamp: actionTimestamp,
           txnType: "COMMISSION",
           amount: toDecimalString(-feeAmount),
-          currency: "USD",
+          currency: importCurrency,
           linkedPositionId: existingShort.position.id,
           description: `Imported position fee for ${row.symbol}`,
           externalReference: `${importReference}:POSITION:FEE`,
@@ -1986,7 +1992,7 @@ async function ensurePositionForRow(
           actionEffect: nextPositionStatus === PositionStatus.CLOSED ? ActionEffectType.CLOSE : ActionEffectType.REDUCE,
           amount: toDecimalString(premiumPerUnit),
           feeAmount: toDecimalString(feeAmount),
-          currency: "USD",
+          currency: importCurrency,
           quantity: toDecimalString(quantity),
           premiumPerUnit: toDecimalString(premiumPerUnit),
           resultingStatus: nextPositionStatus,
@@ -2012,7 +2018,7 @@ async function ensurePositionForRow(
           txnTimestamp: actionTimestamp,
           txnType: CashTxnType.OPTIONS_PREMIUM,
           amount: toDecimalString(premiumNotional),
-          currency: "USD",
+          currency: importCurrency,
           linkedPositionId: existingLong.position.id,
           description: `Imported STC premium for ${row.symbol}`,
           externalReference: `${importReference}:POSITION:PRIMARY`,
@@ -2025,7 +2031,7 @@ async function ensurePositionForRow(
           txnTimestamp: actionTimestamp,
           txnType: "COMMISSION",
           amount: toDecimalString(-feeAmount),
-          currency: "USD",
+          currency: importCurrency,
           linkedPositionId: existingLong.position.id,
           description: `Imported position fee for ${row.symbol}`,
           externalReference: `${importReference}:POSITION:FEE`,
@@ -2094,7 +2100,7 @@ async function ensurePositionForRow(
           actionEffect: ActionEffectType.ROLL,
           amount: toDecimalString(premiumPerUnit),
           feeAmount: toDecimalString(feeAmount),
-          currency: "USD",
+          currency: importCurrency,
           quantity: toDecimalString(quantity),
           premiumPerUnit: toDecimalString(premiumPerUnit),
           resultingStatus: PositionStatus.OPEN,
@@ -2119,7 +2125,7 @@ async function ensurePositionForRow(
           txnTimestamp: actionTimestamp,
           txnType: CashTxnType.OPTIONS_PREMIUM,
           amount: toDecimalString(premiumNotional),
-          currency: "USD",
+          currency: importCurrency,
           linkedPositionId: rollCandidate.id,
           description: `Imported ${rollActionType} premium for ${row.symbol}`,
           externalReference: `${importReference}:POSITION:PRIMARY`,
@@ -2132,7 +2138,7 @@ async function ensurePositionForRow(
           txnTimestamp: actionTimestamp,
           txnType: "COMMISSION",
           amount: toDecimalString(-feeAmount),
-          currency: "USD",
+          currency: importCurrency,
           linkedPositionId: rollCandidate.id,
           description: `Imported position fee for ${row.symbol}`,
           externalReference: `${importReference}:POSITION:FEE`,
@@ -2229,7 +2235,7 @@ async function ensurePositionForRow(
       actionEffect: ActionEffectType.OPEN,
       amount: toDecimalString(premiumPerUnit),
       feeAmount: toDecimalString(feeAmount),
-      currency: "USD",
+      currency: importCurrency,
       quantity: toDecimalString(quantity),
       premiumPerUnit: toDecimalString(premiumPerUnit),
       resultingStatus: PositionStatus.OPEN,
@@ -2255,7 +2261,7 @@ async function ensurePositionForRow(
       txnTimestamp: actionTimestamp,
       txnType: CashTxnType.OPTIONS_PREMIUM,
       amount: toDecimalString(actionType === PositionActionType.STO ? premiumNotional : -premiumNotional),
-      currency: "USD",
+      currency: importCurrency,
       linkedPositionId: position.id,
       description: `Imported ${actionType} premium for ${row.symbol}`,
       externalReference: `${importReference}:POSITION:PRIMARY`,
@@ -2268,7 +2274,7 @@ async function ensurePositionForRow(
       txnTimestamp: actionTimestamp,
       txnType: "COMMISSION" as const,
       amount: toDecimalString(-feeAmount),
-      currency: "USD",
+      currency: importCurrency,
       linkedPositionId: position.id,
       description: `Imported position fee for ${row.symbol}`,
       externalReference: `${importReference}:POSITION:FEE`,
@@ -2292,6 +2298,16 @@ export async function importMoomooCsv(input: ImportMoomooCsvInput): Promise<Impo
   }
 
   const fileHash = createHash("sha256").update(input.csvText).digest("hex");
+  const brokerAccount = await prisma.brokerAccount.findUnique({
+    where: { id: input.brokerAccountId },
+    select: { baseCurrency: true },
+  });
+
+  if (!brokerAccount) {
+    throw new Error("Broker account not found.");
+  }
+
+  const importCurrency = brokerAccount.baseCurrency;
   const existingBatch = await prisma.importBatch.findFirst({
     where: {
       brokerAccountId: input.brokerAccountId,
@@ -2406,7 +2422,7 @@ export async function importMoomooCsv(input: ImportMoomooCsvInput): Promise<Impo
         quantity: row.quantity !== null ? toDecimalString(row.quantity) : null,
         price: row.price !== null ? toDecimalString(row.price) : null,
         feeAmount: toDecimalString(Math.abs(row.feeAmount)),
-        currency: "USD",
+        currency: importCurrency,
         rawPayload: row,
         processingNotes: isImportable ? "Importable" : `Skipped: ${row.skipReason}`,
       },
@@ -2452,7 +2468,7 @@ export async function importMoomooCsv(input: ImportMoomooCsvInput): Promise<Impo
 
     try {
       if (row.assetType === "HOLDING") {
-        const result = await ensureHoldingForRow(row, input.brokerAccountId, importBatch.id);
+        const result = await ensureHoldingForRow(row, input.brokerAccountId, importBatch.id, importCurrency);
         holdingsCreated += result.holdingCreated;
         holdingEventsCreated += result.holdingEventCreated;
         cashLedgerEntriesCreated += result.cashLedgerEntriesCreated;
@@ -2472,6 +2488,7 @@ export async function importMoomooCsv(input: ImportMoomooCsvInput): Promise<Impo
             componentRows: expiredBundleRows,
             brokerAccountId: input.brokerAccountId,
             importBatchId: importBatch.id,
+            importCurrency,
           });
         } else if (shouldProcessAsSpreadRoll && spreadComponents) {
           try {
@@ -2480,11 +2497,12 @@ export async function importMoomooCsv(input: ImportMoomooCsvInput): Promise<Impo
               componentRows: spreadComponents.componentRows,
               brokerAccountId: input.brokerAccountId,
               importBatchId: importBatch.id,
+              importCurrency,
             });
           } catch (error) {
             const reason = error instanceof Error ? error.message : "Unknown roll import failure";
             if (reason.startsWith("Cannot apply roll: source short contract was not found")) {
-              result = await ensurePositionForRow(row, input.brokerAccountId, importBatch.id);
+              result = await ensurePositionForRow(row, input.brokerAccountId, importBatch.id, importCurrency);
             } else {
               throw error;
             }
@@ -2495,9 +2513,10 @@ export async function importMoomooCsv(input: ImportMoomooCsvInput): Promise<Impo
             componentRows: spreadComponents.componentRows,
             brokerAccountId: input.brokerAccountId,
             importBatchId: importBatch.id,
+            importCurrency,
           });
         } else {
-          result = await ensurePositionForRow(row, input.brokerAccountId, importBatch.id);
+          result = await ensurePositionForRow(row, input.brokerAccountId, importBatch.id, importCurrency);
         }
 
         if (shouldProcessAsSpreadBundle && spreadComponents) {
@@ -2576,3 +2595,4 @@ export async function importMoomooCsv(input: ImportMoomooCsvInput): Promise<Impo
     failures,
   };
 }
+

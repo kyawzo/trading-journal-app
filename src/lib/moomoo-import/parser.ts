@@ -17,6 +17,7 @@ const HEADER_ALIASES: Record<string, string[]> = {
   filledAvg: ["filledavgprice", "filled@avgprice", "filledatavgprice"],
   total: ["total"],
   orderSource: ["ordersource", "source"],
+  currency: ["currency", "curr", "ccy"],
 };
 
 const FEE_HEADERS = new Set([
@@ -67,6 +68,7 @@ export type MoomooPreviewSummary = {
   skippedStatusRows: number;
   skippedNonUsRows: number;
   skippedInvalidRows: number;
+  detectedCurrencies: string[];
 };
 
 export type MoomooCsvPreview = {
@@ -467,6 +469,7 @@ export function parseMoomooCsvPreview(csvText: string): MoomooCsvPreview {
   let skippedNonUsRows = 0;
   let skippedInvalidRows = 0;
   const holdingSymbols = new Set<string>();
+  const detectedCurrencies = new Set<string>();
 
   records.forEach((record, index) => {
     const rowNumber = index + 2;
@@ -476,6 +479,7 @@ export function parseMoomooCsvPreview(csvText: string): MoomooCsvPreview {
     const symbol = (getMappedValue(record, headerLookup, "symbol") ?? "").trim().toUpperCase();
     const name = (getMappedValue(record, headerLookup, "name") ?? "").trim();
     const orderSource = (getMappedValue(record, headerLookup, "orderSource") ?? "").trim();
+    const currency = (getMappedValue(record, headerLookup, "currency") ?? "").trim().toUpperCase();
     const orderQty = parseNumber(getMappedValue(record, headerLookup, "orderQty"));
     const orderAmount = parseNumber(getMappedValue(record, headerLookup, "orderAmount"));
     const orderPrice = parseNumber(getMappedValue(record, headerLookup, "orderPrice"));
@@ -541,6 +545,9 @@ export function parseMoomooCsvPreview(csvText: string): MoomooCsvPreview {
 
     if (skipReason === null) {
       processableRows += 1;
+      if (currency) {
+        detectedCurrencies.add(currency);
+      }
 
       if (assetType === "HOLDING") {
         holdingsRows += 1;
@@ -595,6 +602,7 @@ export function parseMoomooCsvPreview(csvText: string): MoomooCsvPreview {
       skippedStatusRows,
       skippedNonUsRows,
       skippedInvalidRows,
+      detectedCurrencies: [...detectedCurrencies].sort(),
     },
     rows,
     warnings,

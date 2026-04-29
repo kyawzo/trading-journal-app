@@ -4,6 +4,7 @@ import { prisma } from "./prisma";
 
 type BrokerLabelTarget = {
   accountName: string;
+  baseCurrency?: string | null;
   broker: { brokerName: string } | null;
 } | null | undefined;
 
@@ -67,7 +68,9 @@ export function formatBrokerAccountLabel(brokerAccount: BrokerLabelTarget) {
     return "All Broker Accounts";
   }
 
-  return `${brokerAccount.broker?.brokerName ?? "Broker"} · ${brokerAccount.accountName}`;
+  const base = `${brokerAccount.broker?.brokerName ?? "Broker"} · ${brokerAccount.accountName}`;
+  const currency = brokerAccount.baseCurrency?.trim();
+  return currency ? `${base} · ${currency}` : base;
 }
 
 export function formatActiveBrokerLabel(activeBrokerAccount: BrokerLabelTarget) {

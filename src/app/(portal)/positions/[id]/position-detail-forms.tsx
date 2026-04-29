@@ -546,13 +546,6 @@ export function PositionActionForm({ positionId }: PositionDetailFormsProps) {
           </select>
         </Field>
 
-        <Field label="Currency">
-          <select name="currency" className="select-field" defaultValue="USD">
-            <option value="USD">USD</option>
-            <option value="SGD">SGD</option>
-          </select>
-        </Field>
-
         {showQuantity ? (
           <Field label="Quantity">
             <input
@@ -645,6 +638,7 @@ export function PositionActionForm({ positionId }: PositionDetailFormsProps) {
               : showAmount
                 ? "Use amount for cash-moving actions such as dividends, interest, fees, exercise, or assignment."
                 : "Use notes-only actions when you want a journal marker without a trade amount or quantity."}
+          {" "}Currency is always inherited from the broker account.
         </p>
       </div>
 
