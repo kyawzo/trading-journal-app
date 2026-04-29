@@ -34,6 +34,10 @@ const navSections: NavSection[] = [
     ],
   },
   {
+    title: "Reports",
+    items: [{ href: "/reports", label: "Management Reports" }],
+  },
+  {
     title: "Administration",
     items: [{ href: "/settings", label: "Settings" }],
   },

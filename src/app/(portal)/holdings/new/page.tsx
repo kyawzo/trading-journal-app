@@ -65,12 +65,6 @@ export default async function NewHoldingPage({ searchParams }: PageProps) {
             <Field label="Opened At">
               <input name="openedAt" type="datetime-local" defaultValue={formatDateTimeLocalInput(new Date())} className="input-field" required />
             </Field>
-            <Field label="Currency">
-              <select name="currency" defaultValue="USD" className="select-field">
-                <option value="USD">USD</option>
-                <option value="SGD">SGD</option>
-              </select>
-            </Field>
             <Field label="Share Quantity">
               <input name="quantity" type="number" step="0.0001" className="input-field" required />
             </Field>
@@ -88,7 +82,7 @@ export default async function NewHoldingPage({ searchParams }: PageProps) {
 
           <p className="note">
             Manual buys will create an <code>ACQUIRED</code> event and post stock cash outflow to the cash ledger.
-            <code>TRANSFER_IN</code> creates the holding without cash movement.
+            <code>TRANSFER_IN</code> creates the holding without cash movement. Currency is always taken from the active broker account.
           </p>
 
           <div className="hero-actions">
@@ -99,7 +93,6 @@ export default async function NewHoldingPage({ searchParams }: PageProps) {
     </main>
   );
 }
-
 
 
 

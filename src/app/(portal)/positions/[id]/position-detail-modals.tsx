@@ -196,13 +196,6 @@ export function PositionDetailModals({ positionId, legs, actions }: PositionDeta
                       <input name="premiumPerUnit" type="number" step="0.01" defaultValue={activeAction.premiumPerUnit ?? ""} className="input-field" />
                     </label>
                     <label className="field-stack">
-                      <span className="field-label">Currency</span>
-                      <select name="currency" defaultValue={activeAction.currency} className="select-field">
-                        <option value="USD">USD</option>
-                        <option value="SGD">SGD</option>
-                      </select>
-                    </label>
-                    <label className="field-stack">
                       <span className="field-label">Resulting Status</span>
                       <select name="resultingStatus" defaultValue={activeAction.resultingStatus ?? ""} className="select-field">
                         <option value="">-- Auto Detect --</option>
@@ -258,6 +251,5 @@ export function PositionLegModalButton({ legId, onOpen }: { legId: string; onOpe
 export function PositionActionModalButton({ actionId, onOpen }: { actionId: string; onOpen: (id: string) => void }) {
   return <button type="button" className="btn-ghost" onMouseDown={(event) => { if (event.target === event.currentTarget) { onOpen(actionId) } }}>Manage Action</button>;
 }
-
 
 

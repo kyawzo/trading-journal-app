@@ -1,7 +1,9 @@
 import { BrokerCode } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { getCurrentUser, redirectToLoginResponse } from "@/src/lib/auth";
+import { validateImportCurrencyMatch } from "@/src/lib/import-currency";
 import { importMoomooCsv } from "@/src/lib/moomoo-import/importer";
+import { parseMoomooCsvPreview } from "@/src/lib/moomoo-import/parser";
 import { prisma } from "@/src/lib/prisma";
 
 function errorResponse(message: string, status = 400) {
@@ -47,10 +49,26 @@ export async function POST(req: Request) {
   }
 
   try {
+    const csvText = await file.text();
+    const preview = parseMoomooCsvPreview(csvText);
+
+    if (preview.missingRequiredColumns.length > 0) {
+      return errorResponse(`CSV is missing required columns: ${preview.missingRequiredColumns.join(", ")}.`);
+    }
+
+    const currencyValidation = validateImportCurrencyMatch({
+      brokerAccountCurrency: brokerAccount.baseCurrency,
+      detectedCurrencies: preview.summary.detectedCurrencies,
+    });
+
+    if (!currencyValidation.ok) {
+      return errorResponse(currencyValidation.message);
+    }
+
     const result = await importMoomooCsv({
       brokerAccountId: brokerAccount.id,
       fileName: file.name,
-      csvText: await file.text(),
+      csvText,
     });
 
     return NextResponse.json({

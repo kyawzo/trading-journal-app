@@ -25,6 +25,7 @@ type PreviewResponse = {
     skippedStatusRows: number;
     skippedNonUsRows: number;
     skippedInvalidRows: number;
+    detectedCurrencies: string[];
   };
   rows: Array<{
     rowNumber: number;
@@ -40,6 +41,14 @@ type PreviewResponse = {
     skipReason: string | null;
   }>;
   warnings: string[];
+};
+
+type PreviewErrorResponse = {
+  error?: string;
+  code?: string;
+  detectedCurrencies?: string[];
+  brokerAccountCurrency?: string;
+  suggestedBrokerAccounts?: Array<{ id: string; label: string }>;
 };
 
 type CommitResponse = {
@@ -74,10 +83,8 @@ export function ImportPreviewPanel({
 }: ImportPreviewPanelProps) {
   const [selectedBrokerAccountId, setSelectedBrokerAccountId] = useState(defaultBrokerAccountId);
   const [file, setFile] = useState<File | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<PreviewResponse | null>(null);
   const [commitResult, setCommitResult] = useState<CommitResponse | null>(null);
-  const [commitError, setCommitError] = useState<string | null>(null);
   const [importAlert, setImportAlert] = useState<{
     tone: "success" | "error";
     title: string;
@@ -85,6 +92,8 @@ export function ImportPreviewPanel({
   } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCommitting, setIsCommitting] = useState(false);
+  const selectedBrokerLabel = brokerAccounts.find((account) => account.id === selectedBrokerAccountId)?.label ?? "Unknown account";
+  const selectedBrokerCurrency = selectedBrokerLabel.split(" · ").at(-1) ?? "N/A";
 
   useEffect(() => {
     if (!importAlert) {
@@ -99,7 +108,11 @@ export function ImportPreviewPanel({
     event.preventDefault();
 
     if (!file) {
-      setError("Please choose a CSV file first.");
+      setImportAlert({
+        tone: "error",
+        title: "Preview failed",
+        message: "Please choose a CSV file first.",
+      });
       setResult(null);
       return;
     }
@@ -110,8 +123,6 @@ export function ImportPreviewPanel({
 
     try {
       setIsSubmitting(true);
-      setError(null);
-      setCommitError(null);
       setCommitResult(null);
       setImportAlert(null);
 
@@ -120,17 +131,31 @@ export function ImportPreviewPanel({
         body: formData,
       });
 
-      const payload = await response.json();
+      const payload = (await response.json()) as PreviewErrorResponse | PreviewResponse;
       if (!response.ok) {
         setResult(null);
-        setError(typeof payload?.error === "string" ? payload.error : "Unable to preview this CSV file.");
+        const message = typeof (payload as PreviewErrorResponse)?.error === "string"
+          ? (payload as PreviewErrorResponse).error!
+          : "Unable to preview this CSV file.";
+        const suggestion = ((payload as PreviewErrorResponse).suggestedBrokerAccounts ?? []).map((item) => item.label).join("; ");
+        const enrichedMessage = suggestion ? `${message} Try account: ${suggestion}` : message;
+        setImportAlert({
+          tone: "error",
+          title: "Preview failed",
+          message: enrichedMessage,
+        });
         return;
       }
 
       setResult(payload as PreviewResponse);
     } catch {
       setResult(null);
-      setError("Import preview failed due to a network or server issue.");
+      const message = "Import preview failed due to a network or server issue.";
+      setImportAlert({
+        tone: "error",
+        title: "Preview failed",
+        message,
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -138,7 +163,11 @@ export function ImportPreviewPanel({
 
   async function handleCommitImport() {
     if (!file) {
-      setCommitError("Please choose a CSV file first.");
+      setImportAlert({
+        tone: "error",
+        title: "Import failed",
+        message: "Please choose a CSV file first.",
+      });
       return;
     }
 
@@ -148,7 +177,6 @@ export function ImportPreviewPanel({
 
     try {
       setIsCommitting(true);
-      setCommitError(null);
       setCommitResult(null);
       setImportAlert(null);
 
@@ -160,7 +188,6 @@ export function ImportPreviewPanel({
       const payload = await response.json();
       if (!response.ok) {
         const message = typeof payload?.error === "string" ? payload.error : "Import failed.";
-        setCommitError(message);
         setImportAlert({
           tone: "error",
           title: "Import failed",
@@ -193,7 +220,6 @@ export function ImportPreviewPanel({
       }
     } catch {
       const message = "Import failed due to a network or server issue.";
-      setCommitError(message);
       setImportAlert({
         tone: "error",
         title: "Import failed",
@@ -256,15 +282,10 @@ export function ImportPreviewPanel({
             </button>
           ) : null}
         </div>
+        <p className="note" style={{ color: "var(--danger, #b91c1c)", fontWeight: 600 }}>
+          Selected account currency: <code>{selectedBrokerCurrency}</code>. Import is allowed only when CSV currency matches this account.
+        </p>
       </form>
-
-      {error ? (
-        <div className="empty-state">{error}</div>
-      ) : null}
-
-      {commitError ? (
-        <div className="empty-state">{commitError}</div>
-      ) : null}
 
       {commitResult ? (
         <div className="empty-state">
@@ -319,6 +340,10 @@ export function ImportPreviewPanel({
             <div className="meta-item">
               <p className="meta-label">Skipped Non-US</p>
               <p className="meta-value">{result.summary.skippedNonUsRows}</p>
+            </div>
+            <div className="meta-item">
+              <p className="meta-label">Detected Currency</p>
+              <p className="meta-value">{result.summary.detectedCurrencies.join(", ") || "N/A"}</p>
             </div>
           </div>
 

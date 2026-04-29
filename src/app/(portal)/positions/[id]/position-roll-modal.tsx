@@ -153,12 +153,6 @@ export function PositionRollModal({ positionId, strategyType, legs }: PositionRo
                 <Field label="Fee Amount">
                   <input name="feeAmount" type="number" step="0.01" className="input-field" defaultValue="0" />
                 </Field>
-                <Field label="Currency">
-                  <select name="currency" className="select-field" defaultValue="USD">
-                    <option value="USD">USD</option>
-                    <option value="SGD">SGD</option>
-                  </select>
-                </Field>
                 <Field label="Resulting Status">
                   <select name="resultingStatus" className="select-field" defaultValue="OPEN">
                     <option value="OPEN">Open</option>
@@ -189,6 +183,7 @@ export function PositionRollModal({ positionId, strategyType, legs }: PositionRo
               <Field label="Roll Notes">
                 <textarea name="notes" className="textarea-field min-h-24" rows={3} placeholder="Example: Rolled tested put side out 14 days for a net credit after SPX touched the short put." />
               </Field>
+              <p className="note">Currency is inherited from the position&apos;s broker account.</p>
 
               <div className="space-y-3">
                 <div>
@@ -246,7 +241,6 @@ export function PositionRollModal({ positionId, strategyType, legs }: PositionRo
     </>
   );
 }
-
 
 
 

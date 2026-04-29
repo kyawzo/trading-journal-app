@@ -1,13 +1,18 @@
 import { BrokerCode } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { getCurrentUser, redirectToLoginResponse } from "@/src/lib/auth";
+import { validateImportCurrencyMatch } from "@/src/lib/import-currency";
 import { parseMoomooCsvPreview } from "@/src/lib/moomoo-import/parser";
 import { prisma } from "@/src/lib/prisma";
 
 const MAX_CSV_BYTES = 100 * 1024 * 1024;
 
-function errorResponse(message: string, status = 400) {
-  return NextResponse.json({ error: message }, { status });
+function errorResponse(
+  message: string,
+  status = 400,
+  extras?: Record<string, unknown>,
+) {
+  return NextResponse.json({ error: message, ...(extras ?? {}) }, { status });
 }
 
 export async function POST(req: Request) {
@@ -71,12 +76,46 @@ export async function POST(req: Request) {
     }, { status: 400 });
   }
 
+  const currencyValidation = validateImportCurrencyMatch({
+    brokerAccountCurrency: brokerAccount.baseCurrency,
+    detectedCurrencies: preview.summary.detectedCurrencies,
+  });
+
+  if (!currencyValidation.ok) {
+    const detectedCurrency = preview.summary.detectedCurrencies[0] ?? null;
+    const suggestedAccounts = detectedCurrency
+      ? await prisma.brokerAccount.findMany({
+          where: {
+            userId: user.id,
+            isActive: true,
+            baseCurrency: detectedCurrency,
+          },
+          include: {
+            broker: true,
+          },
+          orderBy: [{ createdAt: "desc" }],
+          take: 5,
+        })
+      : [];
+
+    return errorResponse(currencyValidation.message, 400, {
+      code: "IMPORT_CURRENCY_MISMATCH",
+      detectedCurrencies: preview.summary.detectedCurrencies,
+      brokerAccountCurrency: brokerAccount.baseCurrency,
+      suggestedBrokerAccounts: suggestedAccounts.map((account) => ({
+        id: account.id,
+        label: `${account.broker.brokerName} · ${account.accountName} · ${account.baseCurrency}`,
+      })),
+    });
+  }
+
   return NextResponse.json({
     brokerAccount: {
       id: brokerAccount.id,
       accountName: brokerAccount.accountName,
       brokerName: brokerAccount.broker.brokerName,
       brokerCode: brokerAccount.broker.brokerCode,
+      baseCurrency: brokerAccount.baseCurrency,
     },
     fileName: file.name,
     ...preview,

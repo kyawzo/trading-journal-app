@@ -21,7 +21,7 @@ export default async function ImportsPage() {
 
   const brokerOptions = brokerAccounts.map((account) => ({
     id: account.id,
-    label: `${account.broker.brokerName} · ${account.accountName}`,
+    label: `${account.broker.brokerName} · ${account.accountName} · ${account.baseCurrency}`,
   }));
 
   const defaultBrokerAccountId = workspace.activeBrokerAccountId ?? brokerOptions[0]?.id ?? "";

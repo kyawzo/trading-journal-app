@@ -85,11 +85,17 @@ export async function POST(req: Request, { params }: RouteProps) {
   const action = await findOwnedPositionActionForUser(user.id, id, actionId, {
     holdingEvents: true,
     actionLegChanges: true,
+    position: {
+      include: {
+        brokerAccount: true,
+      },
+    },
   });
 
   if (!action) {
     return redirectWithMessage(req, id, "error", "Action not found.");
   }
+  const currency = action.position.brokerAccount?.baseCurrency ?? "USD";
 
   if (action.actionType === "ASSIGNED" || action.holdingEvents.length > 0 || action.actionLegChanges.length > 0) {
     return redirectWithMessage(
@@ -113,7 +119,6 @@ export async function POST(req: Request, { params }: RouteProps) {
   const actionType = ((form.get("actionType") as string) || "").trim();
   const amountRaw = (form.get("amount") as string | null)?.trim() || null;
   const feeAmountRaw = (form.get("feeAmount") as string | null)?.trim() || null;
-  const currency = ((form.get("currency") as string) || "USD").trim();
   const quantityRaw = (form.get("quantity") as string | null)?.trim() || null;
   const premiumRaw = (((form.get("premium") as string | null) ?? (form.get("premiumPerUnit") as string | null))?.trim()) || null;
   const resultingStatusRaw = (form.get("resultingStatus") as string | null)?.trim() || null;
@@ -194,4 +199,3 @@ export async function POST(req: Request, { params }: RouteProps) {
 
   return redirectWithMessage(req, id, "success", "Action updated successfully.");
 }
-

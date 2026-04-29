@@ -71,6 +71,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const intent = ((form.get("intent") as string) || "update").trim();
 
   const holding = await findOwnedHoldingForUser(user.id, id, {
+    brokerAccount: true,
     holdingEvents: {
       orderBy: [
         { eventTimestamp: "asc" },
@@ -82,6 +83,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   if (!holding) {
     return redirectWithMessage(req, id, "error", "Holding not found.");
   }
+  const currency = holding.brokerAccount?.baseCurrency ?? "USD";
 
   const event = holding.holdingEvents.find((item) => item.id === eventId);
 
@@ -111,7 +113,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const quantityRaw = ((form.get("quantity") as string) || "").trim();
   const pricePerShareRaw = ((form.get("pricePerShare") as string) || "").trim();
   const feeAmountRaw = ((form.get("feeAmount") as string) || "0").trim();
-  const currency = ((form.get("currency") as string) || "USD").trim();
   const notes = ((form.get("notes") as string) || "").trim();
 
   const quantity = parseHoldingNumberInput(quantityRaw);
@@ -187,4 +188,3 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   return redirectWithMessage(req, id, "success", "Holding event updated successfully.");
 }
-

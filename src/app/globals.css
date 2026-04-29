@@ -188,9 +188,13 @@ body:has(.modal-backdrop) {
   }
 
   .panel-strong {
-    @apply rounded-[24px] border p-5 shadow-sm;
+    @apply relative rounded-[24px] border p-5 shadow-sm;
     background: var(--panel-strong);
     border-color: var(--line);
+  }
+
+  .stretched-link {
+    @apply absolute inset-0 rounded-[24px];
   }
 
   .panel-dark {

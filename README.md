@@ -123,3 +123,7 @@ Design references:
 
 - This project runs on Next.js 16 and may differ from older Next.js conventions.
 - For framework-sensitive changes, consult bundled docs in `node_modules/next/dist/docs/`.
+
+## TODO List
+
+- [TODOLIST.md](./TODOLIST.md)

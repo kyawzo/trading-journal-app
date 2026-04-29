@@ -54,7 +54,6 @@ export function HoldingEventList({ holdingId, events }: HoldingEventListProps) {
                     <label className="field-stack"><span className="field-label">Quantity</span><input name="quantity" type="number" step="0.0001" defaultValue={activeEvent.quantity ?? ""} className="input-field" /></label>
                     <label className="field-stack"><span className="field-label">Price Per Share</span><input name="pricePerShare" type="number" step="0.0001" defaultValue={activeEvent.pricePerShare ?? ""} className="input-field" /></label>
                     <label className="field-stack"><span className="field-label">Fee Amount</span><input name="feeAmount" type="number" step="0.01" defaultValue={activeEvent.feeAmount} className="input-field" /></label>
-                    <label className="field-stack"><span className="field-label">Currency</span><select name="currency" defaultValue={activeEvent.currency} className="select-field"><option value="USD">USD</option><option value="SGD">SGD</option></select></label>
                   </div>
                   <label className="field-stack"><span className="field-label">Notes</span><textarea name="notes" rows={3} defaultValue={activeEvent.notes ?? ""} className="textarea-field min-h-24" /></label>
                 </form>
@@ -115,4 +114,3 @@ export function HoldingEventList({ holdingId, events }: HoldingEventListProps) {
     </>
   );
 }
-

@@ -45,7 +45,7 @@ export async function POST(req: Request) {
   const quantityRaw = ((form.get("quantity") as string) || "").trim();
   const costBasisPerShareRaw = ((form.get("costBasisPerShare") as string) || "").trim();
   const feeAmountRaw = ((form.get("feeAmount") as string) || "0").trim();
-  const currency = ((form.get("currency") as string) || brokerAccount.baseCurrency || "USD").trim().toUpperCase();
+  const currency = brokerAccount.baseCurrency || "USD";
   const notes = ((form.get("notes") as string) || "").trim();
 
   if (!Object.values(HoldingSourceType).includes(sourceType as HoldingSourceType)) {

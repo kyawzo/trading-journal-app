@@ -65,12 +65,11 @@ export function HoldingDetailModals({
                 <label className="field-stack"><span className="field-label">Quantity</span><input name="quantity" type="number" step="0.0001" className="input-field" /></label>
                 <label className="field-stack"><span className="field-label">Price Per Share</span><input name="pricePerShare" type="number" step="0.0001" className="input-field" /></label>
                 <label className="field-stack"><span className="field-label">Fee Amount</span><input name="feeAmount" type="number" step="0.01" defaultValue="0" className="input-field" /></label>
-                <label className="field-stack"><span className="field-label">Currency</span><select name="currency" defaultValue="USD" className="select-field"><option value="USD">USD</option><option value="SGD">SGD</option></select></label>
               </div>
 
               <label className="field-stack"><span className="field-label">Notes</span><textarea name="notes" rows={3} className="textarea-field min-h-24" placeholder="Partial stock sale, called away by short call, dividend received, manual share adjustment..." /></label>
 
-              <p className="note">For price-based stock events, total amount is calculated automatically from quantity x price per share. <code>ACQUIRED</code> posts stock cash outflow, sell and called-away events post stock cash inflow, and <code>TRANSFER_IN</code> / <code>TRANSFER_OUT</code> only affect inventory.</p>
+              <p className="note">For price-based stock events, total amount is calculated automatically from quantity x price per share. <code>ACQUIRED</code> posts stock cash outflow, sell and called-away events post stock cash inflow, and <code>TRANSFER_IN</code> / <code>TRANSFER_OUT</code> only affect inventory. Currency follows broker account base currency.</p>
               </div>
 
               <div className="modal-actions pt-6" style={{ borderTop: "1px solid var(--line)" }}>
@@ -181,4 +180,3 @@ export function HoldingDetailModals({
     </>
   );
 }
-
