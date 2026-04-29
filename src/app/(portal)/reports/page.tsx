@@ -57,19 +57,31 @@ export default async function ReportsPage() {
         </div>
 
         <div className="stats-grid-3">
-          {reportModules.map((module) => (
-            <article key={module.title} className="h-full">
-              <div className="panel-strong section-stack h-full">
-                <div>
-                  <h4 className="item-title">{module.title}</h4>
-                  <p className="note mt-2">{module.description}</p>
+          {reportModules.map((module) => {
+            if (module.href) {
+              return (
+                <article key={module.title} className="h-full">
+                  <Link href={module.href} className="panel-strong section-stack block h-full">
+                    <div>
+                      <h4 className="item-title">{module.title}</h4>
+                      <p className="note mt-2">{module.description}</p>
+                    </div>
+                  </Link>
+                </article>
+              );
+            }
+
+            return (
+              <article key={module.title} className="h-full">
+                <div className="panel-strong section-stack h-full">
+                  <div>
+                    <h4 className="item-title">{module.title}</h4>
+                    <p className="note mt-2">{module.description}</p>
+                  </div>
                 </div>
-                {module.href ? (
-                  <Link href={module.href} className="stretched-link" aria-label={`Open ${module.title} report`} />
-                ) : null}
-              </div>
-            </article>
-          ))}
+              </article>
+            );
+          })}
         </div>
       </section>
     </main>
