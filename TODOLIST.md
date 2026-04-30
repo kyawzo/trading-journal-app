@@ -37,7 +37,7 @@ Status legend:
 | Capability | Plan | Status |
 |---|---|---|
 | Shared URL query model | Use `page`, `pageSize`, `sort`, and page-specific filter params in the URL so lists are refresh-safe and bookmarkable | `Done` |
-| Shared pager UI | Add reusable pagination controls with `Previous`, `Next`, page number, total rows, and optional page-size selector | `Done` |
+| Shared pager UI | Add reusable pagination controls with `Previous`, `Next`, page number, direct page jump, total rows, and optional page-size selector | `Done` |
 | Server-side filtered queries | Apply `where`, `orderBy`, `skip`, and `take` in Prisma at page load instead of loading a large in-memory list | `Done` |
 | Matching count query | Run `count()` with the same filter set so page totals stay accurate | `Done` |
 | Safe default first load | Default each page to a narrow initial slice so first render stays quick even for large accounts | `Done` |
@@ -49,8 +49,18 @@ Status legend:
 |---|---|---|---|
 | Positions | Page 1, 20 rows, newest first, default status = open + recently updated/created closed items | Keeps the main trading workflow focused on active positions first | `Done` |
 | Holdings | Page 1, 25 rows, split by active/inactive tab, newest opened first | Active tab should remain the default because it is operationally more important | `Done` |
-| Cash Ledger | Page 1, 50 rows, newest first | Ledger rows are lighter, so a slightly larger page is fine | `Done` |
+| Cash Ledger | Page 1, 20 rows, newest first | Keeps initial load fast while still usable for reconciliation flows | `Done` |
 | Imports | Page 1, 20 rows, newest first | Import review usually starts from recent batches | `Done` |
+
+### Default Date Window for First Load
+
+| Listing | Default Date Filter | Why | Status |
+|---|---|---|---|
+| Positions | `from = first day of previous month`, `to = today` | Reduces first-load volume while keeping recent trading context | `Done` |
+| Holdings | `from = first day of previous month`, `to = today` | Keeps holding list fast for active review windows | `Done` |
+| Cash Ledger | `from = first day of previous month`, `to = today` | Reduces ledger scan size for first render | `Done` |
+| Imports | `from = first day of previous month`, `to = today` | Focuses on recent imports and speeds first load | `Done` |
+| All listings | If `from` and `to` are cleared and filters applied, date filter is removed | Allows full-history access on demand | `Done` |
 
 ### Proposed Filter Criteria Per Listing
 
