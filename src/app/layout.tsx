@@ -16,7 +16,7 @@ export default async function RootLayout({
 
   return (
     <html lang="en" data-theme={themeModeToAttribute(workspace.themeMode)}>
-      <body className={`${bodyFont.variable} app-shell font-[var(--font-body)]`}>
+      <body suppressHydrationWarning className={`${bodyFont.variable} app-shell font-[var(--font-body)]`}>
         {children}
       </body>
     </html>

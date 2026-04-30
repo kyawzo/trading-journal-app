@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
 
 type HoldingListItem = {
   id: string;
@@ -18,43 +17,20 @@ type HoldingListItem = {
 
 type HoldingsListTabsProps = {
   holdings: HoldingListItem[];
+  activeTab: "active" | "inactive";
+  activeHref: string;
+  inactiveHref: string;
 };
 
-export function HoldingsListTabs({ holdings }: HoldingsListTabsProps) {
-  const [activeTab, setActiveTab] = useState<"active" | "inactive">("active");
-
-  const { activeHoldings, inactiveHoldings } = useMemo(() => {
-    const active = holdings.filter((holding) => holding.remainingQuantityValue > 0);
-    const inactive = holdings.filter((holding) => holding.remainingQuantityValue <= 0);
-
-    return {
-      activeHoldings: active,
-      inactiveHoldings: inactive,
-    };
-  }, [holdings]);
-
-  const visibleHoldings = activeTab === "active" ? activeHoldings : inactiveHoldings;
-
+export function HoldingsListTabs({ holdings, activeTab, activeHref, inactiveHref }: HoldingsListTabsProps) {
   return (
     <div className="section-stack">
       <div className="hero-actions">
-        <button
-          type="button"
-          className={activeTab === "active" ? "btn-primary" : "btn-ghost"}
-          onClick={() => setActiveTab("active")}
-        >
-          Active Holdings ({activeHoldings.length})
-        </button>
-        <button
-          type="button"
-          className={activeTab === "inactive" ? "btn-secondary" : "btn-ghost"}
-          onClick={() => setActiveTab("inactive")}
-        >
-          Inactive Holdings ({inactiveHoldings.length})
-        </button>
+        <Link href={activeHref} className={activeTab === "active" ? "btn-primary" : "btn-ghost"}>Active Holdings</Link>
+        <Link href={inactiveHref} className={activeTab === "inactive" ? "btn-secondary" : "btn-ghost"}>Inactive Holdings</Link>
       </div>
 
-      {visibleHoldings.length === 0 ? (
+      {holdings.length === 0 ? (
         <div className="empty-state">
           {activeTab === "active"
             ? "No active holdings right now."
@@ -62,7 +38,7 @@ export function HoldingsListTabs({ holdings }: HoldingsListTabsProps) {
         </div>
       ) : (
         <ul className="list-stack">
-          {visibleHoldings.map((holding) => {
+          {holdings.map((holding) => {
             const isInactive = holding.remainingQuantityValue <= 0;
 
             return (
@@ -75,7 +51,7 @@ export function HoldingsListTabs({ holdings }: HoldingsListTabsProps) {
                     <div>
                       <h4 className="item-title">{holding.symbol}</h4>
                       <p className="note mt-2">
-                        {holding.remainingQuantityLabel} shares remaining · open cost {holding.openCostDisplay} · avg cost {holding.avgCostDisplay}/share
+                        {holding.remainingQuantityLabel} shares remaining · open cost {holding.openCostDisplay} · avg cost {holding.avgCostDisplay}/share · opened {holding.openedAtDisplay}
                       </p>
                     </div>
 
@@ -83,7 +59,6 @@ export function HoldingsListTabs({ holdings }: HoldingsListTabsProps) {
                       <span className="chip">{holding.holdingStatus}</span>
                       <span className="chip-neutral">{holding.sourceType}</span>
                       <span className="chip-neutral">{holding.brokerLabel}</span>
-                      <span className="chip-amber">{holding.openedAtDisplay}</span>
                     </div>
                   </div>
                 </Link>
