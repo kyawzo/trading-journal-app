@@ -2,6 +2,8 @@
 
 Status legend:
 - `Done`: implemented and validated
+- `In Progress`: started, not yet fully complete
+- `Not Needed`: intentionally excluded from current scope
 - `Not Yet`: planned, not fully implemented
 
 ## Currency Policy Hardening
@@ -22,6 +24,71 @@ Status legend:
 | Show clearer currency guidance in import screen before upload | `Done` |
 | Suggest matching broker account(s) by CSV currency during preview errors | `Done` |
 | Highlight selected account currency prominently near `Run Import` action | `Done` |
+
+## Listing Pagination & Filter Roadmap
+
+| Item | Details | Status |
+|---|---|---|
+| Why this matters | Current listing pages still rely on simple `take: N` queries, which is fine early on but will feel slow and limiting once positions, holdings, ledger rows, and import history grow. | `Not Yet` |
+| Desired outcome | Move to URL-driven pagination plus practical filter criteria so first load stays fast and users can narrow the list before loading too much data. | `Not Yet` |
+
+### Shared Pagination Design
+
+| Capability | Plan | Status |
+|---|---|---|
+| Shared URL query model | Use `page`, `pageSize`, `sort`, and page-specific filter params in the URL so lists are refresh-safe and bookmarkable | `Done` |
+| Shared pager UI | Add reusable pagination controls with `Previous`, `Next`, page number, direct page jump, total rows, and optional page-size selector | `Done` |
+| Server-side filtered queries | Apply `where`, `orderBy`, `skip`, and `take` in Prisma at page load instead of loading a large in-memory list | `Done` |
+| Matching count query | Run `count()` with the same filter set so page totals stay accurate | `Done` |
+| Safe default first load | Default each page to a narrow initial slice so first render stays quick even for large accounts | `Done` |
+| Empty/filter state UX | Show “no results for current filters” separately from “no data yet” | `In Progress` |
+
+### Proposed Default First-Load Strategy
+
+| Listing | Default Slice | Notes | Status |
+|---|---|---|---|
+| Positions | Page 1, 20 rows, newest first, default status = open + recently updated/created closed items | Keeps the main trading workflow focused on active positions first | `Done` |
+| Holdings | Page 1, 25 rows, split by active/inactive tab, newest opened first | Active tab should remain the default because it is operationally more important | `Done` |
+| Cash Ledger | Page 1, 20 rows, newest first | Keeps initial load fast while still usable for reconciliation flows | `Done` |
+| Imports | Page 1, 20 rows, newest first | Import review usually starts from recent batches | `Done` |
+
+### Default Date Window for First Load
+
+| Listing | Default Date Filter | Why | Status |
+|---|---|---|---|
+| Positions | `from = first day of previous month`, `to = today` | Reduces first-load volume while keeping recent trading context | `Done` |
+| Holdings | `from = first day of previous month`, `to = today` | Keeps holding list fast for active review windows | `Done` |
+| Cash Ledger | `from = first day of previous month`, `to = today` | Reduces ledger scan size for first render | `Done` |
+| Imports | `from = first day of previous month`, `to = today` | Focuses on recent imports and speeds first load | `Done` |
+| All listings | If `from` and `to` are cleared and filters applied, date filter is removed | Allows full-history access on demand | `Done` |
+
+### Proposed Filter Criteria Per Listing
+
+| Listing | Criteria to Add First | Status |
+|---|---|---|
+| Positions | status, symbol search, strategy type, opened/closed date range | `Done` (status, symbol, strategy implemented; date range can be expanded next) |
+| Holdings | active/inactive state, symbol search, source type, opened date range | `Done` (active/inactive, symbol, source implemented; date range can be expanded next) |
+| Cash Ledger | transaction type, date range, amount direction (inflow/outflow), text/description search | `Done` |
+| Imports | batch status, broker account, imported date range, file name search, failed-only toggle | `Done` |
+
+### Implementation Phases
+
+| Phase | Scope | Status |
+|---|---|---|
+| Phase A - Shared Foundation | Query parsing helpers, shared pager component, shared count + pagination conventions | `Done` |
+| Phase B - Positions | Add filters + pagination to positions list first because it will likely grow fastest and has the heaviest card payload | `Done` |
+| Phase C - Holdings | Add active/inactive aware pagination and lightweight holding filters | `Done` |
+| Phase D - Cash Ledger | Add date/type filtering with larger page size for audit-style scrolling | `Done` |
+| Phase E - Imports | Add batch-status/date/broker filtering and paged import history review | `Done` |
+
+### Performance Notes Before Implementation
+
+| Note | Details | Status |
+|---|---|---|
+| Filter before heavy joins | Prefer filtering before joining heavier related data so we do not over-fetch on first load. | `Not Yet` |
+| Positions query care | Positions likely need the most care because list cards currently pull legs and actions; we should reduce card payload where possible or move some derived summary work into lighter queries/helpers. | `Not Yet` |
+| URL-driven filters | Keep filters in the URL so page transitions and browser back/forward stay predictable. | `Not Yet` |
+| Index review later | If query speed becomes an issue later, add or refine DB indexes after observing real usage patterns rather than guessing too early. | `Not Yet` |
 
 ## Notes
 

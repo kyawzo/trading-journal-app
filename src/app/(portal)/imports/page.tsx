@@ -1,12 +1,56 @@
+import { ImportBatchStatus, Prisma } from "@prisma/client";
+import Link from "next/link";
+import { PaginationControls } from "@/src/app/components/pagination-controls";
 import { requireCurrentUser } from "@/src/lib/auth";
+import { paginationMeta, parsePositiveInt } from "@/src/lib/listing-pagination";
 import { prisma } from "@/src/lib/prisma";
 import { formatActiveBrokerLabel, getWorkspacePreference } from "@/src/lib/workspace-preference";
 import { ImportHistoryPanel } from "./import-history-panel";
 import { ImportPreviewPanel } from "./import-preview-panel";
 
-export default async function ImportsPage() {
+const PAGE_SIZE = 20;
+
+function formatDateInput(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getDefaultDateWindow() {
+  const today = new Date();
+  const defaultFrom = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  return {
+    from: formatDateInput(defaultFrom),
+    to: formatDateInput(today),
+  };
+}
+
+type PageProps = {
+  searchParams: Promise<{
+    page?: string;
+    status?: string;
+    brokerAccountId?: string;
+    q?: string;
+    from?: string;
+    to?: string;
+    failedOnly?: string;
+  }>;
+};
+
+export default async function ImportsPage({ searchParams }: PageProps) {
+  const { page, status, brokerAccountId, q, from, to, failedOnly } = await searchParams;
   const user = await requireCurrentUser("/imports");
   const workspace = await getWorkspacePreference();
+  const currentPage = parsePositiveInt(page, 1);
+  const statusFilter = status ?? "all";
+  const selectedBrokerAccountId = (brokerAccountId ?? "").trim();
+  const fileQuery = (q ?? "").trim();
+  const failedOnlyFilter = failedOnly === "1";
+  const validStatuses = new Set(Object.values(ImportBatchStatus));
+  const validStatusFilter = validStatuses.has(statusFilter as ImportBatchStatus) || statusFilter === "all"
+    ? statusFilter
+    : "all";
 
   const brokerAccounts = await prisma.brokerAccount.findMany({
     where: {
@@ -25,12 +69,34 @@ export default async function ImportsPage() {
   }));
 
   const defaultBrokerAccountId = workspace.activeBrokerAccountId ?? brokerOptions[0]?.id ?? "";
-  const recentBatches = await prisma.importBatch.findMany({
-    where: {
-      brokerAccount: {
-        userId: user.id,
-      },
+  const defaultWindow = getDefaultDateWindow();
+  const fromValue = from === undefined ? defaultWindow.from : from;
+  const toValue = to === undefined ? defaultWindow.to : to;
+  const fromDate = fromValue ? new Date(`${fromValue}T00:00:00`) : null;
+  const toDate = toValue ? new Date(`${toValue}T23:59:59`) : null;
+  const batchWhere: Prisma.ImportBatchWhereInput = {
+    brokerAccount: {
+      userId: user.id,
     },
+    ...(validStatusFilter !== "all" ? { batchStatus: validStatusFilter as ImportBatchStatus } : {}),
+    ...(selectedBrokerAccountId ? { brokerAccountId: selectedBrokerAccountId } : {}),
+    ...(fileQuery ? { fileName: { contains: fileQuery, mode: "insensitive" } } : {}),
+    ...(failedOnlyFilter ? { errorCount: { gt: 0 } } : {}),
+    ...((fromDate || toDate)
+      ? {
+        importedAt: {
+          ...(fromDate ? { gte: fromDate } : {}),
+          ...(toDate ? { lte: toDate } : {}),
+        },
+      }
+      : {}),
+  };
+
+  const totalCount = await prisma.importBatch.count({ where: batchWhere });
+  const meta = paginationMeta(totalCount, currentPage, PAGE_SIZE);
+
+  const recentBatches = await prisma.importBatch.findMany({
+    where: batchWhere,
     include: {
       brokerAccount: {
         include: {
@@ -39,7 +105,8 @@ export default async function ImportsPage() {
       },
     },
     orderBy: [{ importedAt: "desc" }],
-    take: 10,
+    skip: meta.skip,
+    take: meta.pageSize,
   });
   const recentBatchIds = recentBatches.map((batch) => batch.id);
   const importPrefixes = new Map(recentBatchIds.map((batchId) => [batchId, `IMPORT:${batchId}:`]));
@@ -155,6 +222,34 @@ export default async function ImportsPage() {
     holdingsTouched: recentBatchItemsPlaceholderCount(holdingsByBatch),
   };
 
+  const makeHref = (nextPage: number) => {
+    const params = new URLSearchParams();
+    if (validStatusFilter !== "all") {
+      params.set("status", validStatusFilter);
+    }
+    if (selectedBrokerAccountId) {
+      params.set("brokerAccountId", selectedBrokerAccountId);
+    }
+    if (fileQuery) {
+      params.set("q", fileQuery);
+    }
+    if (fromValue) {
+      params.set("from", fromValue);
+    }
+    if (toValue) {
+      params.set("to", toValue);
+    }
+    if (failedOnlyFilter) {
+      params.set("failedOnly", "1");
+    }
+    if (nextPage > 1) {
+      params.set("page", String(nextPage));
+    }
+
+    const query = params.toString();
+    return query ? `/imports?${query}` : "/imports";
+  };
+
   const recentBatchItems = recentBatches.map((batch) => ({
     id: batch.id,
     fileName: batch.fileName,
@@ -199,9 +294,65 @@ export default async function ImportsPage() {
         />
       )}
 
+      <section className="panel section-stack">
+        <div className="stats-grid-3">
+          <label className="field-stack">
+            <span className="field-label">Status</span>
+            <select name="status" form="imports-filter-form" defaultValue={validStatusFilter} className="input-field">
+              <option value="all">All Statuses</option>
+              {Object.values(ImportBatchStatus).map((value) => (
+                <option key={value} value={value}>{value}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field-stack">
+            <span className="field-label">Broker Account</span>
+            <select name="brokerAccountId" form="imports-filter-form" defaultValue={selectedBrokerAccountId} className="input-field">
+              <option value="">All Accounts</option>
+              {brokerOptions.map((option) => (
+                <option key={option.id} value={option.id}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <label className="field-stack">
+            <span className="field-label">File Name</span>
+            <input name="q" form="imports-filter-form" defaultValue={fileQuery} className="input-field" placeholder="moomoo.csv" />
+          </label>
+        </div>
+        <div className="stats-grid-3">
+          <label className="field-stack">
+            <span className="field-label">From</span>
+            <input type="date" name="from" form="imports-filter-form" defaultValue={fromValue ?? ""} className="input-field" />
+          </label>
+          <label className="field-stack">
+            <span className="field-label">To</span>
+            <input type="date" name="to" form="imports-filter-form" defaultValue={toValue ?? ""} className="input-field" />
+          </label>
+          <label className="field-stack">
+            <span className="field-label">Failed Rows</span>
+            <select name="failedOnly" form="imports-filter-form" defaultValue={failedOnlyFilter ? "1" : "0"} className="input-field">
+              <option value="0">Include All</option>
+              <option value="1">Failed Only</option>
+            </select>
+          </label>
+        </div>
+        <form id="imports-filter-form" method="GET" action="/imports" className="hero-actions">
+          <button type="submit" className="btn-primary">Apply Filters</button>
+          <Link href="/imports" className="btn-ghost">Reset Filters</Link>
+        </form>
+      </section>
+
       <ImportHistoryPanel
         batches={recentBatchItems}
         overview={importOverview}
+      />
+
+      <PaginationControls
+        page={meta.page}
+        totalPages={meta.totalPages}
+        totalCount={meta.totalCount}
+        pageSize={meta.pageSize}
+        makeHref={makeHref}
       />
     </main>
   );

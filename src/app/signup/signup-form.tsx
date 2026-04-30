@@ -14,7 +14,7 @@ export function SignupForm({ nextPath }: { nextPath: string }) {
     <form method="POST" action="/api/auth/signup" className="space-y-6" onSubmit={handleSubmit} aria-busy={isSubmitting}>
       <input type="hidden" name="next" value={nextPath} />
 
-      <fieldset className="space-y-6" disabled={isSubmitting}>
+      <fieldset className="space-y-6">
         <label className="field-stack">
           <span className="field-label">Display Name</span>
           <input name="displayName" className="input-field" placeholder="Optional name" autoComplete="name" />

@@ -69,6 +69,7 @@ export function calculateCashLedgerSummary(
   let currentBalance = 0;
   let totalInflows = 0;
   let totalOutflows = 0;
+  let totalDeposits = 0;
   let currency = "USD";
 
   for (const entry of entries) {
@@ -84,12 +85,17 @@ export function calculateCashLedgerSummary(
     if (amount < 0) {
       totalOutflows += Math.abs(amount);
     }
+
+    if (entry.txnType === "DEPOSIT" && amount > 0) {
+      totalDeposits += amount;
+    }
   }
 
   return {
     currentBalance,
     totalInflows,
     totalOutflows,
+    totalDeposits,
     currency,
   };
 }

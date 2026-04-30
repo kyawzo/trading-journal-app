@@ -1,5 +1,8 @@
 import Link from "next/link";
+import { PositionStatus, Prisma, StrategyType } from "@prisma/client";
+import { PaginationControls } from "@/src/app/components/pagination-controls";
 import { requireCurrentUser } from "@/src/lib/auth";
+import { paginationMeta, parsePositiveInt } from "@/src/lib/listing-pagination";
 import { prisma } from "@/src/lib/prisma";
 import {
   formatActiveBrokerLabel,
@@ -8,9 +11,33 @@ import {
   getWorkspacePreference,
 } from "@/src/lib/workspace-preference";
 
+const PAGE_SIZE = 20;
+const CLOSED_STATUSES: PositionStatus[] = [
+  PositionStatus.CLOSED,
+  PositionStatus.EXPIRED,
+  PositionStatus.ASSIGNED,
+  PositionStatus.EXERCISED,
+];
+
 function getPositionCardClassName(status: string): string {
-  const closedStatuses = new Set(["CLOSED", "EXPIRED", "EXPIRED_WORTHLESS", "ASSIGNED"]);
+  const closedStatuses = new Set(CLOSED_STATUSES.map((value) => value.toString()));
   return closedStatuses.has(status) ? "list-card list-card-closed" : "list-card list-card-open";
+}
+
+function formatDateInput(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function getDefaultDateWindow() {
+  const today = new Date();
+  const defaultFrom = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  return {
+    from: formatDateInput(defaultFrom),
+    to: formatDateInput(today),
+  };
 }
 
 function getPositionSummary(position: any): string {
@@ -92,13 +119,81 @@ function getPositionSummary(position: any): string {
   return parts.join(", ");
 }
 
-export default async function PositionsPage() {
+type PageProps = {
+  searchParams: Promise<{
+    page?: string;
+    status?: string;
+    q?: string;
+    strategy?: string;
+    from?: string;
+    to?: string;
+  }>;
+};
+
+export default async function PositionsPage({ searchParams }: PageProps) {
+  const { page, status, q, strategy, from, to } = await searchParams;
   await requireCurrentUser("/positions");
   const workspace = await getWorkspacePreference();
+  const currentPage = parsePositiveInt(page, 1);
+  const statusFilter = status === "open" || status === "closed" ? status : "all";
+  const symbolQuery = (q ?? "").trim().toUpperCase();
+  const validStrategies = new Set(Object.values(StrategyType));
+  const strategyFilter = validStrategies.has((strategy ?? "") as StrategyType) ? strategy as StrategyType : "all";
+  const defaultWindow = getDefaultDateWindow();
+  const fromValue = from === undefined ? defaultWindow.from : from;
+  const toValue = to === undefined ? defaultWindow.to : to;
+  const fromDate = fromValue ? new Date(`${fromValue}T00:00:00`) : null;
+  const toDate = toValue ? new Date(`${toValue}T23:59:59`) : null;
+
+  const where: Prisma.PositionWhereInput = {
+    ...getBrokerScopedWhere(workspace.activeBrokerAccountId),
+    ...(statusFilter === "open"
+      ? { currentStatus: { notIn: CLOSED_STATUSES } }
+      : statusFilter === "closed"
+        ? { currentStatus: { in: CLOSED_STATUSES } }
+        : {}),
+    ...(symbolQuery ? { underlyingSymbol: { contains: symbolQuery, mode: "insensitive" } } : {}),
+    ...(strategyFilter !== "all" ? { strategyType: strategyFilter } : {}),
+    ...((fromDate || toDate)
+      ? {
+        openedAt: {
+          ...(fromDate ? { gte: fromDate } : {}),
+          ...(toDate ? { lte: toDate } : {}),
+        },
+      }
+      : {}),
+  };
+
+  const makeFilterHref = (nextStatus: "all" | "open" | "closed") => {
+    const params = new URLSearchParams();
+    if (nextStatus !== "all") {
+      params.set("status", nextStatus);
+    }
+    if (symbolQuery) {
+      params.set("q", symbolQuery);
+    }
+    if (strategyFilter !== "all") {
+      params.set("strategy", strategyFilter);
+    }
+    if (fromValue) {
+      params.set("from", fromValue);
+    }
+    if (toValue) {
+      params.set("to", toValue);
+    }
+
+    const query = params.toString();
+    return query ? `/positions?${query}` : "/positions";
+  };
+
+  const totalCount = await prisma.position.count({ where });
+  const meta = paginationMeta(totalCount, currentPage, PAGE_SIZE);
+
   const positions = await prisma.position.findMany({
-    where: getBrokerScopedWhere(workspace.activeBrokerAccountId),
+    where,
     orderBy: { openedAt: "desc" },
-    take: 20,
+    skip: meta.skip,
+    take: meta.pageSize,
     include: {
       brokerAccount: {
         include: {
@@ -109,6 +204,25 @@ export default async function PositionsPage() {
       actions: true,
     },
   });
+
+  const makeHref = (nextPage: number) => {
+    const params = new URLSearchParams();
+    if (statusFilter !== "all") {
+      params.set("status", statusFilter);
+    }
+    if (symbolQuery) {
+      params.set("q", symbolQuery);
+    }
+    if (strategyFilter !== "all") {
+      params.set("strategy", strategyFilter);
+    }
+    if (nextPage > 1) {
+      params.set("page", String(nextPage));
+    }
+
+    const query = params.toString();
+    return query ? `/positions?${query}` : "/positions";
+  };
 
   return (
     <main className="page-shell">
@@ -139,9 +253,47 @@ export default async function PositionsPage() {
           <p className="section-copy">Your latest manual and linked strategy entries for the selected broker account.</p>
         </div>
 
+        <div className="item-row">
+          <Link href={makeFilterHref("all")} className={statusFilter === "all" ? "btn-primary" : "btn-ghost"}>All</Link>
+          <Link href={makeFilterHref("open")} className={statusFilter === "open" ? "btn-primary" : "btn-ghost"}>Open</Link>
+          <Link href={makeFilterHref("closed")} className={statusFilter === "closed" ? "btn-primary" : "btn-ghost"}>Closed</Link>
+        </div>
+
+        <form method="GET" action="/positions" className="panel section-stack">
+          <input type="hidden" name="status" value={statusFilter} />
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <label className="field-stack">
+              <span className="field-label">Symbol</span>
+              <input name="q" defaultValue={symbolQuery} className="input-field" placeholder="AAPL" />
+            </label>
+            <label className="field-stack">
+              <span className="field-label">Strategy</span>
+              <select name="strategy" defaultValue={strategyFilter} className="input-field">
+                <option value="all">All Strategies</option>
+                {Object.values(StrategyType).map((value) => (
+                  <option key={value} value={value}>{value}</option>
+                ))}
+              </select>
+            </label>
+            <label className="field-stack">
+              <span className="field-label">From</span>
+              <input type="date" name="from" defaultValue={fromValue ?? ""} className="input-field" />
+            </label>
+            <label className="field-stack">
+              <span className="field-label">To</span>
+              <input type="date" name="to" defaultValue={toValue ?? ""} className="input-field" />
+            </label>
+          </div>
+          <div className="hero-actions">
+            <button type="submit" className="btn-primary">Apply Filters</button>
+            <Link href={makeFilterHref(statusFilter)} className="btn-ghost">Refresh Current Scope</Link>
+            <Link href={statusFilter === "all" ? "/positions" : `/positions?status=${statusFilter}`} className="btn-ghost">Reset Filters</Link>
+          </div>
+        </form>
+
         {positions.length === 0 ? (
           <div className="empty-state">
-            No positions yet for this broker account. Start with a manual trade or launch one from a holding workflow.
+            No positions found for this filter. Adjust status or create a new position.
           </div>
         ) : (
           <ul className="list-stack">
@@ -168,6 +320,14 @@ export default async function PositionsPage() {
             ))}
           </ul>
         )}
+
+        <PaginationControls
+          page={meta.page}
+          totalPages={meta.totalPages}
+          totalCount={meta.totalCount}
+          pageSize={meta.pageSize}
+          makeHref={makeHref}
+        />
       </section>
     </main>
   );
