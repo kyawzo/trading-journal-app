@@ -357,6 +357,8 @@ model HoldingEvent {
   eventTimestamp         DateTime         @map("event_timestamp") @db.Timestamptz(6)
   eventType              HoldingEventType @map("event_type")
   quantity               Decimal?         @db.Decimal(18, 4)
+  splitRatioNumerator    Decimal?         @map("split_ratio_numerator") @db.Decimal(18, 8)
+  splitRatioDenominator  Decimal?         @map("split_ratio_denominator") @db.Decimal(18, 8)
   pricePerShare          Decimal?         @map("price_per_share") @db.Decimal(18, 4)
   amount                 Decimal?         @db.Decimal(18, 4)
   feeAmount              Decimal          @default(0) @map("fee_amount") @db.Decimal(18, 4)

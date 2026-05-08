@@ -73,6 +73,8 @@ export async function syncHoldingPnlSnapshot(holdingId: string) {
         select: {
           eventType: true,
           quantity: true,
+          splitRatioNumerator: true,
+          splitRatioDenominator: true,
           pricePerShare: true,
           amount: true,
           feeAmount: true,

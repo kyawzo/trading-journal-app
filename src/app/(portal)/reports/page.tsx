@@ -8,25 +8,39 @@ const reportModules = [
     href: "/reports/trading-summary",
   },
   {
-    title: "Strategy Performance",
+    title: "Strategy Performance (Options)",
     description: "Compare outcomes by strategy type, including CSP, CC, and spread structures.",
+    href: "/reports/strategy-performance",
   },
   {
-    title: "Realized vs Unrealized P/L",
-    description: "Separate closed trade results from open exposure by account and currency.",
+    title: "Realized P/L & Open Exposure",
+    description: "Separate closed trade results from current open inventory and cost exposure by account and currency.",
+    href: "/reports/realized-vs-unrealized",
   },
   {
-    title: "Monthly Performance Trend",
-    description: "Track consistency, drawdowns, and recovery month by month.",
+    title: "Monthly Performance Trend (Options)",
+    description: "Track consistency, drawdowns, and recovery month by month for closed options positions.",
     href: "/reports/monthly-trend",
+  },
+  {
+    title: "Monthly Performance Trend (Holdings)",
+    description: "Review realized stock holding exits by month using sale and called-away events.",
+    href: "/reports/monthly-trend-holdings",
+  },
+  {
+    title: "Holding Performance Snapshot",
+    description: "Shows open stock holdings, realized exits, and cost basis quality in one broker-scoped view.",
+    href: "/reports/holding-performance",
   },
   {
     title: "Cash Flow Report",
     description: "Review deposits, withdrawals, premiums, fees, and dividends per account.",
+    href: "/reports/cash-flow",
   },
   {
     title: "Import Quality Report",
     description: "Audit imported rows, failed rows, and rollback activity for confidence.",
+    href: "/reports/import-quality",
   },
 ];
 

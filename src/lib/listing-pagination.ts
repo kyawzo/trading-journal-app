@@ -1,5 +1,28 @@
 export const DEFAULT_PAGE = 1;
 
+export function buildListingHref(
+  pathname: string,
+  entries: Array<[string, string | number | null | undefined]>,
+) {
+  const params = new URLSearchParams();
+
+  for (const [key, value] of entries) {
+    if (value === null || value === undefined) {
+      continue;
+    }
+
+    const normalized = typeof value === "number" ? String(value) : value;
+    if (normalized === "") {
+      continue;
+    }
+
+    params.set(key, normalized);
+  }
+
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
+}
+
 export function parsePositiveInt(
   value: string | undefined,
   fallback: number,

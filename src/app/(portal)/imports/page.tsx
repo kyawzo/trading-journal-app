@@ -2,7 +2,7 @@ import { ImportBatchStatus, Prisma } from "@prisma/client";
 import Link from "next/link";
 import { PaginationControls } from "@/src/app/components/pagination-controls";
 import { requireCurrentUser } from "@/src/lib/auth";
-import { paginationMeta, parsePositiveInt } from "@/src/lib/listing-pagination";
+import { buildListingHref, paginationMeta, parsePositiveInt } from "@/src/lib/listing-pagination";
 import { prisma } from "@/src/lib/prisma";
 import { formatActiveBrokerLabel, getWorkspacePreference } from "@/src/lib/workspace-preference";
 import { ImportHistoryPanel } from "./import-history-panel";
@@ -223,31 +223,15 @@ export default async function ImportsPage({ searchParams }: PageProps) {
   };
 
   const makeHref = (nextPage: number) => {
-    const params = new URLSearchParams();
-    if (validStatusFilter !== "all") {
-      params.set("status", validStatusFilter);
-    }
-    if (selectedBrokerAccountId) {
-      params.set("brokerAccountId", selectedBrokerAccountId);
-    }
-    if (fileQuery) {
-      params.set("q", fileQuery);
-    }
-    if (fromValue) {
-      params.set("from", fromValue);
-    }
-    if (toValue) {
-      params.set("to", toValue);
-    }
-    if (failedOnlyFilter) {
-      params.set("failedOnly", "1");
-    }
-    if (nextPage > 1) {
-      params.set("page", String(nextPage));
-    }
-
-    const query = params.toString();
-    return query ? `/imports?${query}` : "/imports";
+    return buildListingHref("/imports", [
+      ["status", validStatusFilter !== "all" ? validStatusFilter : null],
+      ["brokerAccountId", selectedBrokerAccountId || null],
+      ["q", fileQuery || null],
+      ["from", fromValue],
+      ["to", toValue],
+      ["failedOnly", failedOnlyFilter ? "1" : null],
+      ["page", nextPage > 1 ? nextPage : null],
+    ]);
   };
 
   const recentBatchItems = recentBatches.map((batch) => ({
@@ -338,7 +322,7 @@ export default async function ImportsPage({ searchParams }: PageProps) {
         </div>
         <form id="imports-filter-form" method="GET" action="/imports" className="hero-actions">
           <button type="submit" className="btn-primary">Apply Filters</button>
-          <Link href="/imports" className="btn-ghost">Reset Filters</Link>
+          <Link href={buildListingHref("/imports", [])} className="btn-ghost">Reset Filters</Link>
         </form>
       </section>
 

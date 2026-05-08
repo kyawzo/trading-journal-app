@@ -2,7 +2,8 @@ import Link from "next/link";
 import { PositionStatus, Prisma, StrategyType } from "@prisma/client";
 import { PaginationControls } from "@/src/app/components/pagination-controls";
 import { requireCurrentUser } from "@/src/lib/auth";
-import { paginationMeta, parsePositiveInt } from "@/src/lib/listing-pagination";
+import { buildListingHref, paginationMeta, parsePositiveInt } from "@/src/lib/listing-pagination";
+import { getPositionStrategyLegTemplate } from "@/src/lib/position-leg-templates";
 import { prisma } from "@/src/lib/prisma";
 import {
   formatActiveBrokerLabel,
@@ -41,19 +42,21 @@ function getDefaultDateWindow() {
 }
 
 function getPositionSummary(position: any): string {
-  if (position.positionTitle) {
+  const genericImportedTitles = new Set(["vertical", "iron condor", "custom(1/1/1/1/)"]);
+
+  if (position.positionTitle && !genericImportedTitles.has(String(position.positionTitle).trim().toLowerCase())) {
     return position.positionTitle;
   }
 
   if (!position.legs || position.legs.length === 0) {
-    return "No custom title yet. Open the detail page to add thesis, plans, and structure notes.";
+    return "";
   }
 
   // Only get OPEN legs (exclude ROLLED, CLOSED, etc.)
   const openLegs = position.legs.filter((leg: any) => leg.legStatus === "OPEN");
   
   if (openLegs.length === 0) {
-    return "No custom title yet. Open the detail page to add thesis, plans, and structure notes.";
+    return "";
   }
 
   // Get PUT and CALL strikes from OPEN legs only
@@ -119,6 +122,77 @@ function getPositionSummary(position: any): string {
   return parts.join(", ");
 }
 
+function formatPositionLegInfo(position: any): string | null {
+  if (!position.legs || position.legs.length === 0) {
+    return null;
+  }
+
+  const activeLegs = position.legs.filter((leg: any) => leg.legStatus === "OPEN" || leg.legStatus === "PARTIALLY_CLOSED");
+  const displayLegs = activeLegs.length > 0
+    ? activeLegs
+    : position.legs.filter((leg: any) => leg.legType === "OPTION" || leg.legType === "STOCK");
+
+  if (displayLegs.length === 0) {
+    return null;
+  }
+
+  const template = getPositionStrategyLegTemplate(position.strategyType);
+  const putLegs = displayLegs
+    .filter((leg: any) => leg.optionType === "PUT")
+    .sort((a: any, b: any) => Number(a.strikePrice ?? 0) - Number(b.strikePrice ?? 0));
+  const callLegs = displayLegs
+    .filter((leg: any) => leg.optionType === "CALL")
+    .sort((a: any, b: any) => Number(a.strikePrice ?? 0) - Number(b.strikePrice ?? 0));
+
+  const putStrikes = putLegs.map((leg: any) => leg.strikePrice?.toString()).filter(Boolean);
+  const callStrikes = callLegs.map((leg: any) => leg.strikePrice?.toString()).filter(Boolean);
+  const stockLegs = displayLegs.filter((leg: any) => leg.legType === "STOCK");
+
+  switch (position.strategyType) {
+    case "IRON_CONDOR":
+      return `Legs: IC · Put ${putStrikes.join("/")} · Call ${callStrikes.join("/")}`;
+    case "BULL_PUT_SPREAD":
+      return `Legs: BPS · Put ${putStrikes.join("/")}`;
+    case "BEAR_CALL_SPREAD":
+      return `Legs: BCS · Call ${callStrikes.join("/")}`;
+    case "BULL_CALL_SPREAD":
+      return `Legs: Bull Call · Call ${callStrikes.join("/")}`;
+    case "BEAR_PUT_SPREAD":
+      return `Legs: Bear Put · Put ${putStrikes.join("/")}`;
+    case "CSP":
+      return `Legs: CSP · Put ${putStrikes[0] ?? "-"}`;
+    case "CC":
+      return `Legs: CC · Call ${callStrikes[0] ?? "-"}${stockLegs.length > 0 ? ` · Stock ${stockLegs[0]?.quantity?.toString?.() ?? ""}` : ""}`;
+    case "SHORT_CALL":
+    case "LONG_CALL":
+    case "LEAPS_CALL":
+      return `Legs: Call · ${callStrikes[0] ?? "-"}`;
+    case "SHORT_PUT":
+    case "LONG_PUT":
+    case "LEAPS_PUT":
+      return `Legs: Put · ${putStrikes[0] ?? "-"}`;
+    default:
+      if (template) {
+        return `Legs: ${template.label} · ${template.legs.map((leg) => leg.label).join(" + ")}`;
+      }
+      return `Legs: ${displayLegs.map((leg: any) => {
+        const shape = [leg.legSide, leg.optionType, leg.strikePrice].filter(Boolean).join(" ");
+        return shape || leg.legType;
+      }).join(" | ")}`;
+  }
+}
+
+function getPositionDescription(position: any): string {
+  const summary = getPositionSummary(position);
+  const legInfo = formatPositionLegInfo(position);
+
+  if (legInfo) {
+    return summary ? `${summary} · ${legInfo.replace(/^Legs:\s*/, "")}` : legInfo.replace(/^Legs:\s*/, "");
+  }
+
+  return summary;
+}
+
 type PageProps = {
   searchParams: Promise<{
     page?: string;
@@ -165,25 +239,13 @@ export default async function PositionsPage({ searchParams }: PageProps) {
   };
 
   const makeFilterHref = (nextStatus: "all" | "open" | "closed") => {
-    const params = new URLSearchParams();
-    if (nextStatus !== "all") {
-      params.set("status", nextStatus);
-    }
-    if (symbolQuery) {
-      params.set("q", symbolQuery);
-    }
-    if (strategyFilter !== "all") {
-      params.set("strategy", strategyFilter);
-    }
-    if (fromValue) {
-      params.set("from", fromValue);
-    }
-    if (toValue) {
-      params.set("to", toValue);
-    }
-
-    const query = params.toString();
-    return query ? `/positions?${query}` : "/positions";
+    return buildListingHref("/positions", [
+      ["status", nextStatus !== "all" ? nextStatus : null],
+      ["q", symbolQuery || null],
+      ["strategy", strategyFilter !== "all" ? strategyFilter : null],
+      ["from", fromValue],
+      ["to", toValue],
+    ]);
   };
 
   const totalCount = await prisma.position.count({ where });
@@ -206,22 +268,14 @@ export default async function PositionsPage({ searchParams }: PageProps) {
   });
 
   const makeHref = (nextPage: number) => {
-    const params = new URLSearchParams();
-    if (statusFilter !== "all") {
-      params.set("status", statusFilter);
-    }
-    if (symbolQuery) {
-      params.set("q", symbolQuery);
-    }
-    if (strategyFilter !== "all") {
-      params.set("strategy", strategyFilter);
-    }
-    if (nextPage > 1) {
-      params.set("page", String(nextPage));
-    }
-
-    const query = params.toString();
-    return query ? `/positions?${query}` : "/positions";
+    return buildListingHref("/positions", [
+      ["status", statusFilter !== "all" ? statusFilter : null],
+      ["q", symbolQuery || null],
+      ["strategy", strategyFilter !== "all" ? strategyFilter : null],
+      ["from", fromValue],
+      ["to", toValue],
+      ["page", nextPage > 1 ? nextPage : null],
+    ]);
   };
 
   return (
@@ -287,7 +341,12 @@ export default async function PositionsPage({ searchParams }: PageProps) {
           <div className="hero-actions">
             <button type="submit" className="btn-primary">Apply Filters</button>
             <Link href={makeFilterHref(statusFilter)} className="btn-ghost">Refresh Current Scope</Link>
-            <Link href={statusFilter === "all" ? "/positions" : `/positions?status=${statusFilter}`} className="btn-ghost">Reset Filters</Link>
+            <Link
+              href={buildListingHref("/positions", [["status", statusFilter !== "all" ? statusFilter : null]])}
+              className="btn-ghost"
+            >
+              Reset Filters
+            </Link>
           </div>
         </form>
 
@@ -303,9 +362,11 @@ export default async function PositionsPage({ searchParams }: PageProps) {
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
                       <h4 className="item-title">{position.underlyingSymbol} · {position.strategyType}</h4>
-                      <p className="note mt-2 max-w-2xl">
-                        {getPositionSummary(position)}
-                      </p>
+                      {getPositionDescription(position) ? (
+                        <p className="note mt-2 max-w-2xl">
+                          {getPositionDescription(position)}
+                        </p>
+                      ) : null}
                     </div>
 
                     <div className="item-row">

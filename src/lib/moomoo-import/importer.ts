@@ -229,7 +229,21 @@ function isSameContractDate(left: Date | null | undefined, right: Date | null | 
 }
 
 function getDaysToExpiry(actionTimestamp: Date, expiryDate: Date) {
-  return (expiryDate.getTime() - actionTimestamp.getTime()) / (1000 * 60 * 60 * 24);
+  // LEAPS classification should be based on contract dates, not intraday clock hours.
+  // Otherwise a same-day entry time can push a borderline contract (for example 270 calendar
+  // days to expiry) just below the threshold and misclassify it as a normal long option.
+  const normalizedActionDate = Date.UTC(
+    actionTimestamp.getUTCFullYear(),
+    actionTimestamp.getUTCMonth(),
+    actionTimestamp.getUTCDate(),
+  );
+  const normalizedExpiryDate = Date.UTC(
+    expiryDate.getUTCFullYear(),
+    expiryDate.getUTCMonth(),
+    expiryDate.getUTCDate(),
+  );
+
+  return (normalizedExpiryDate - normalizedActionDate) / (1000 * 60 * 60 * 24);
 }
 
 function inferSingleLegRoleForStrategy(input: {
@@ -640,11 +654,214 @@ function isRollStyleSpread(spreadLegs: SpreadOptionLeg[] | null) {
   return groupSpreadLegsByExpiry(spreadLegs).length >= 2;
 }
 
+async function shouldSkipSpreadSummaryAsSingleLegRoll(input: {
+  brokerAccountId: string;
+  componentRows: MoomooPreviewRow[];
+}) {
+  const { brokerAccountId, componentRows } = input;
+
+  if (componentRows.length !== 2) {
+    return false;
+  }
+
+  const buyRow = componentRows.find((row) => row.side.toUpperCase().includes("BUY"));
+  const sellRow = componentRows.find((row) => row.side.toUpperCase().includes("SELL"));
+  if (!buyRow || !sellRow) {
+    return false;
+  }
+
+  const buyOptionDetails = getOptionDetails(buyRow.symbol);
+  const sellOptionDetails = getOptionDetails(sellRow.symbol);
+  if (!buyOptionDetails || !sellOptionDetails) {
+    return false;
+  }
+
+  const hasDifferentExpiry = !isSameContractDate(buyOptionDetails.expiryDate, sellOptionDetails.expiryDate);
+  if (!hasDifferentExpiry) {
+    return false;
+  }
+
+  if (
+    !isSameUnderlyingFamily(buyOptionDetails.underlyingSymbol, sellOptionDetails.underlyingSymbol) ||
+    buyOptionDetails.optionType !== sellOptionDetails.optionType
+  ) {
+    return false;
+  }
+
+  const existingShort = await findMatchingOpenOptionPosition(
+    brokerAccountId,
+    buyRow,
+    buyOptionDetails,
+    LegSide.SHORT,
+  );
+
+  return existingShort !== null;
+}
+
+async function ensureSingleLegRollFromSpreadSummaryRow(input: {
+  summaryRow: MoomooPreviewRow;
+  componentRows: MoomooPreviewRow[];
+  brokerAccountId: string;
+  importBatchId: string;
+  importCurrency: string;
+}) {
+  const { summaryRow, componentRows, brokerAccountId, importBatchId, importCurrency } = input;
+
+  if (componentRows.length !== 2) {
+    throw new Error("Single-leg roll summary requires exactly two component rows.");
+  }
+
+  const buyRow = componentRows.find((row) => row.side.toUpperCase().includes("BUY"));
+  const sellRow = componentRows.find((row) => row.side.toUpperCase().includes("SELL"));
+  if (!buyRow || !sellRow) {
+    throw new Error("Single-leg roll summary requires one buy row and one sell row.");
+  }
+
+  const buyOptionDetails = getOptionDetails(buyRow.symbol);
+  const sellOptionDetails = getOptionDetails(sellRow.symbol);
+  if (!buyOptionDetails || !sellOptionDetails) {
+    throw new Error("Unable to parse option contracts from single-leg roll summary.");
+  }
+
+  const actionTimestamp = toDateOrNow(summaryRow.eventTimestamp);
+  const quantity = summaryRow.quantity ?? buyRow.quantity ?? sellRow.quantity ?? 0;
+  const premiumPerUnit = summaryRow.price ?? 0;
+  const feeAmount = Math.abs(summaryRow.feeAmount ?? 0);
+  const importReference = getImportReference(importBatchId, summaryRow.rowNumber);
+
+  const existingShort = await findMatchingOpenOptionPosition(
+    brokerAccountId,
+    buyRow,
+    buyOptionDetails,
+    LegSide.SHORT,
+  );
+
+  if (!existingShort) {
+    throw new Error("Cannot apply single-leg roll: source short option position was not found.");
+  }
+
+  const currentLegQty = Number(existingShort.leg.quantity.toString());
+  if (currentLegQty + 0.0000001 < quantity) {
+    throw new Error(`Single-leg roll quantity ${quantity} is greater than open short quantity ${currentLegQty}.`);
+  }
+
+  // For broker-exported diagonal single-leg rolls, use the summary row as the source of truth
+  // for net premium and fee. The component buy/sell rows are only structural hints.
+  await prisma.positionLeg.update({
+    where: { id: existingShort.leg.id },
+    data: {
+      legStatus: LegStatus.ROLLED,
+      closedAt: actionTimestamp,
+    },
+  });
+
+  await prisma.position.update({
+    where: { id: existingShort.position.id },
+    data: {
+      currentStatus: PositionStatus.OPEN,
+      closedAt: null,
+      strategyType: await deriveStrategyTypeForNewOptionPosition({
+        brokerAccountId,
+        underlyingSymbol: summaryRow.underlyingSymbol,
+        optionDetails: sellOptionDetails,
+        actionType: PositionActionType.STO,
+        actionTimestamp,
+      }),
+    },
+  });
+
+  await prisma.positionLeg.create({
+    data: {
+      positionId: existingShort.position.id,
+      legType: LegType.OPTION,
+      legSide: LegSide.SHORT,
+      optionType: sellOptionDetails.optionType,
+      underlyingSymbol: sellOptionDetails.underlyingSymbol,
+      expiryDate: sellOptionDetails.expiryDate,
+      strikePrice: toDecimalString(sellOptionDetails.strikePrice),
+      quantity: toDecimalString(quantity),
+      multiplier: "100",
+      legRole: "ROLLED_IN",
+      openedAt: actionTimestamp,
+      legStatus: LegStatus.OPEN,
+      parentLegId: existingShort.leg.id,
+    },
+  });
+
+  const rollActionType = premiumPerUnit >= 0 ? PositionActionType.ROLL_CREDIT : PositionActionType.ROLL_DEBIT;
+
+  await prisma.positionAction.create({
+    data: {
+      positionId: existingShort.position.id,
+      actionTimestamp,
+      actionType: rollActionType,
+      actionEffect: ActionEffectType.ROLL,
+      amount: toDecimalString(premiumPerUnit),
+      feeAmount: toDecimalString(feeAmount),
+      currency: importCurrency,
+      quantity: toDecimalString(quantity),
+      premiumPerUnit: toDecimalString(premiumPerUnit),
+      resultingStatus: PositionStatus.OPEN,
+      notes: `Imported single-leg roll summary from MooMoo (${importReference})`,
+      brokerReference: importReference,
+    },
+  });
+
+  const premiumNotional = Math.abs(premiumPerUnit * quantity * 100);
+  const primaryCashAmount = rollActionType === PositionActionType.ROLL_CREDIT
+    ? premiumNotional
+    : -premiumNotional;
+
+  const ledgerEntries: Array<{
+    brokerAccountId: string;
+    txnTimestamp: Date;
+    txnType: CashTxnType;
+    amount: string;
+    currency: string;
+    linkedHoldingId?: string;
+    linkedPositionId?: string;
+    description: string;
+    externalReference: string;
+  }> = [
+    {
+      brokerAccountId,
+      txnTimestamp: actionTimestamp,
+      txnType: CashTxnType.OPTIONS_PREMIUM,
+      amount: toDecimalString(primaryCashAmount),
+      currency: importCurrency,
+      linkedPositionId: existingShort.position.id,
+      description: `Imported ${rollActionType} premium for ${summaryRow.symbol}`,
+      externalReference: `${importReference}:POSITION:PRIMARY`,
+    },
+  ];
+
+  if (feeAmount > 0) {
+    ledgerEntries.push({
+      brokerAccountId,
+      txnTimestamp: actionTimestamp,
+      txnType: "COMMISSION",
+      amount: toDecimalString(-feeAmount),
+      currency: importCurrency,
+      linkedPositionId: existingShort.position.id,
+      description: `Imported position fee for ${summaryRow.symbol}`,
+      externalReference: `${importReference}:POSITION:FEE`,
+    });
+  }
+
+  await prisma.cashLedger.createMany({ data: ledgerEntries });
+
+  return {
+    positionCreated: 0,
+    positionActionCreated: 1,
+    cashLedgerEntriesCreated: ledgerEntries.length,
+  };
+}
+
 function findSpreadSummaryComponentRows(
   summaryRow: MoomooPreviewRow,
   allRows: MoomooPreviewRow[],
 ) {
-  if (!(isVerticalSpreadSummaryRow(summaryRow) || isIronCondorSummaryRow(summaryRow) || isCustomSpreadSummaryRow(summaryRow))) {
+  if (!(summaryRow.isSpread && summaryRow.symbol.includes("/"))) {
     return null;
   }
 
@@ -862,6 +1079,16 @@ async function findMatchingOpenSpreadPosition(input: {
   return null;
 }
 
+function getActiveSpreadQuantity(activeOptionLegs: Array<{
+  quantity: { toString(): string };
+}>) {
+  if (activeOptionLegs.length === 0) {
+    return 0;
+  }
+
+  return Math.min(...activeOptionLegs.map((leg) => Number(leg.quantity.toString())));
+}
+
 async function findRecentOpenSpreadPositionByFamily(input: {
   brokerAccountId: string;
   underlyingSymbol: string;
@@ -895,6 +1122,85 @@ async function findRecentOpenSpreadPositionByFamily(input: {
   });
 }
 
+async function findOpenPositionsCoveringSpreadLegs(input: {
+  brokerAccountId: string;
+  underlyingSymbol: string;
+  spreadLegs: SpreadOptionLeg[];
+}) {
+  const expectedKeys = new Set(input.spreadLegs.map(getSpreadLegContractKey));
+  const normalizedUnderlying = normalizeUnderlyingFamily(input.underlyingSymbol);
+  const underlyingVariants = Array.from(new Set([normalizedUnderlying, `${normalizedUnderlying}W`]));
+
+  const candidates = await prisma.position.findMany({
+    where: {
+      brokerAccountId: input.brokerAccountId,
+      underlyingSymbol: {
+        in: underlyingVariants,
+      },
+      assetClass: AssetClass.OPTION,
+      currentStatus: {
+        in: [PositionStatus.OPEN, PositionStatus.PARTIALLY_CLOSED],
+      },
+    },
+    include: {
+      legs: true,
+    },
+    orderBy: [{ openedAt: "desc" }, { createdAt: "desc" }],
+    take: 50,
+  });
+
+  const matches = candidates.map((position) => {
+    const activeOptionLegs = position.legs.filter((leg) => (
+      leg.legType === LegType.OPTION &&
+      (leg.legStatus === LegStatus.OPEN || leg.legStatus === LegStatus.PARTIALLY_CLOSED)
+    ));
+
+    const matchingActiveLegs = activeOptionLegs.filter((leg) => {
+      const optionType = leg.optionType as OptionType | null;
+      const expiryDate = leg.expiryDate as Date | null;
+      const strikePrice = Number(leg.strikePrice?.toString() ?? "NaN");
+      if (!optionType || !expiryDate || !Number.isFinite(strikePrice)) {
+        return false;
+      }
+
+      return expectedKeys.has(getSpreadLegContractKey({
+        optionType,
+        expiryDate,
+        strikePrice,
+      }));
+    });
+
+    return {
+      position,
+      activeOptionLegs,
+      matchingActiveLegs,
+    };
+  }).filter((candidate) => candidate.matchingActiveLegs.length > 0);
+
+  const coveredKeys = new Set(
+    matches.flatMap((candidate) => candidate.matchingActiveLegs.map((leg) => {
+      const optionType = leg.optionType as OptionType | null;
+      const expiryDate = leg.expiryDate as Date | null;
+      const strikePrice = Number(leg.strikePrice?.toString() ?? "NaN");
+      if (!optionType || !expiryDate || !Number.isFinite(strikePrice)) {
+        return "INVALID";
+      }
+
+      return getSpreadLegContractKey({
+        optionType,
+        expiryDate,
+        strikePrice,
+      });
+    })),
+  );
+
+  if (![...expectedKeys].every((key) => coveredKeys.has(key))) {
+    return null;
+  }
+
+  return matches;
+}
+
 async function ensurePositionExpiredWorthlessBundle(input: {
   componentRows: MoomooPreviewRow[];
   brokerAccountId: string;
@@ -919,84 +1225,96 @@ async function ensurePositionExpiredWorthlessBundle(input: {
     spreadLegs,
   });
 
-  if (!existingSpread) {
-    throw new Error("Cannot match expired option bundle to an open position.");
-  }
-
   const actionTimestamp = toDateOrNow(seedRow.eventTimestamp);
   const quantity = seedRow.quantity ?? componentRows[0]?.quantity ?? 0;
   const importReference = getImportReference(importBatchId, seedRow.rowNumber);
   const expiredLegKeys = new Set(spreadLegs.map(getSpreadLegContractKey));
-  const matchingActiveLegs = existingSpread.activeOptionLegs.filter((leg) => {
-    const optionType = leg.optionType as OptionType | null;
-    const expiryDate = leg.expiryDate as Date | null;
-    const strikePrice = Number(leg.strikePrice?.toString() ?? "NaN");
+  const bundleTargets = existingSpread
+    ? [{
+      position: existingSpread.position,
+      matchingActiveLegs: existingSpread.activeOptionLegs.filter((leg) => {
+        const optionType = leg.optionType as OptionType | null;
+        const expiryDate = leg.expiryDate as Date | null;
+        const strikePrice = Number(leg.strikePrice?.toString() ?? "NaN");
 
-    if (!optionType || !expiryDate || !Number.isFinite(strikePrice)) {
-      return false;
-    }
+        if (!optionType || !expiryDate || !Number.isFinite(strikePrice)) {
+          return false;
+        }
 
-    return expiredLegKeys.has(getSpreadLegContractKey({
-      optionType,
-      expiryDate,
-      strikePrice,
-    }));
-  });
+        return expiredLegKeys.has(getSpreadLegContractKey({
+          optionType,
+          expiryDate,
+          strikePrice,
+        }));
+      }),
+    }]
+    : await findOpenPositionsCoveringSpreadLegs({
+      brokerAccountId,
+      underlyingSymbol: seedRow.underlyingSymbol,
+      spreadLegs,
+    });
 
-  if (matchingActiveLegs.length === 0) {
-    throw new Error("Cannot match expired option legs to active legs on the open position.");
+  if (!bundleTargets || bundleTargets.length === 0) {
+    throw new Error("Cannot match expired option bundle to an open position.");
   }
 
-  for (const leg of matchingActiveLegs) {
-    await prisma.positionLeg.update({
-      where: { id: leg.id },
+  for (const target of bundleTargets) {
+    if (target.matchingActiveLegs.length === 0) {
+      continue;
+    }
+
+    for (const leg of target.matchingActiveLegs) {
+      await prisma.positionLeg.update({
+        where: { id: leg.id },
+        data: {
+          legStatus: LegStatus.EXPIRED,
+          closedAt: actionTimestamp,
+        },
+      });
+    }
+
+    const refreshedLegs = await prisma.positionLeg.findMany({
+      where: {
+        positionId: target.position.id,
+        legType: LegType.OPTION,
+      },
+    });
+
+    const remainingActiveLegs = refreshedLegs.filter((leg) => (
+      leg.legStatus === LegStatus.OPEN || leg.legStatus === LegStatus.PARTIALLY_CLOSED
+    ));
+    const resultingStatus = remainingActiveLegs.length > 0 ? PositionStatus.PARTIALLY_CLOSED : PositionStatus.EXPIRED;
+    const targetQuantity = Number(target.matchingActiveLegs[0]?.quantity?.toString() ?? quantity);
+
+    await prisma.position.update({
+      where: { id: target.position.id },
       data: {
-        legStatus: LegStatus.EXPIRED,
-        closedAt: actionTimestamp,
+        currentStatus: resultingStatus,
+        closedAt: resultingStatus === PositionStatus.EXPIRED ? actionTimestamp : null,
+      },
+    });
+
+    await prisma.positionAction.create({
+      data: {
+        positionId: target.position.id,
+        actionTimestamp,
+        actionType: PositionActionType.EXPIRED_WORTHLESS,
+        actionEffect: ActionEffectType.EXPIRE,
+        amount: "0",
+        feeAmount: "0",
+        currency: importCurrency,
+        quantity: toDecimalString(targetQuantity),
+        premiumPerUnit: "0",
+        resultingStatus,
+        notes: `Imported option expiry from MooMoo (${importReference})`,
+        brokerReference: importReference,
       },
     });
   }
 
-  const refreshedLegs = await prisma.positionLeg.findMany({
-    where: {
-      positionId: existingSpread.position.id,
-      legType: LegType.OPTION,
-    },
-  });
-
-  const remainingActiveLegs = refreshedLegs.filter((leg) => (
-    leg.legStatus === LegStatus.OPEN || leg.legStatus === LegStatus.PARTIALLY_CLOSED
-  ));
-  const resultingStatus = remainingActiveLegs.length > 0 ? PositionStatus.PARTIALLY_CLOSED : PositionStatus.EXPIRED;
-
-  await prisma.position.update({
-    where: { id: existingSpread.position.id },
-    data: {
-      currentStatus: resultingStatus,
-      closedAt: resultingStatus === PositionStatus.EXPIRED ? actionTimestamp : null,
-    },
-  });
-
-  await prisma.positionAction.create({
-    data: {
-      positionId: existingSpread.position.id,
-      actionTimestamp,
-      actionType: PositionActionType.EXPIRED_WORTHLESS,
-      actionEffect: ActionEffectType.EXPIRE,
-      amount: "0",
-      feeAmount: "0",
-      currency: importCurrency,
-      quantity: toDecimalString(quantity),
-      premiumPerUnit: "0",
-      resultingStatus,
-      notes: `Imported option expiry from MooMoo (${importReference})`,
-      brokerReference: importReference,
-    },
-  });
-
   return {
     positionCreated: 0,
-    positionActionCreated: 1,
+    positionActionCreated: bundleTargets.length,
     cashLedgerEntriesCreated: 0,
   };
 }
@@ -1034,26 +1352,45 @@ async function ensurePositionForSpreadBundle(input: {
     spreadLegs,
   });
 
-  if (summaryIsBuy && existingSpread) {
-    const closeActionType = existingSpread.position.actions.some((action) => action.actionType === PositionActionType.STO)
-      ? PositionActionType.BTC
-      : PositionActionType.STC;
+  const actionType = summaryIsSell ? PositionActionType.STO : PositionActionType.BTO;
+  const existingOpenedBySto = existingSpread?.position.actions.some((action) => action.actionType === PositionActionType.STO) ?? false;
+  const existingOpenedByBto = existingSpread?.position.actions.some((action) => action.actionType === PositionActionType.BTO) ?? false;
+
+  if (
+    existingSpread &&
+    ((summaryIsBuy && existingOpenedBySto) || (summaryIsSell && existingOpenedByBto))
+  ) {
+    const closeActionType = summaryIsBuy ? PositionActionType.BTC : PositionActionType.STC;
+    const currentSpreadQty = getActiveSpreadQuantity(existingSpread.activeOptionLegs);
+
+    if (currentSpreadQty + 0.0000001 < quantity) {
+      throw new Error(`Spread close quantity ${quantity} is greater than open spread quantity ${currentSpreadQty}.`);
+    }
+
+    const remainingQty = Math.max(currentSpreadQty - quantity, 0);
 
     for (const leg of existingSpread.activeOptionLegs) {
       await prisma.positionLeg.update({
         where: { id: leg.id },
-        data: {
-          legStatus: LegStatus.CLOSED,
-          closedAt: actionTimestamp,
-        },
+        data: remainingQty > 0
+          ? {
+            quantity: toDecimalString(remainingQty),
+            legStatus: LegStatus.PARTIALLY_CLOSED,
+          }
+          : {
+            legStatus: LegStatus.CLOSED,
+            closedAt: actionTimestamp,
+          },
       });
     }
+
+    const nextStatus = remainingQty > 0 ? PositionStatus.PARTIALLY_CLOSED : PositionStatus.CLOSED;
 
     await prisma.position.update({
       where: { id: existingSpread.position.id },
       data: {
-        currentStatus: PositionStatus.CLOSED,
-        closedAt: actionTimestamp,
+        currentStatus: nextStatus,
+        closedAt: remainingQty <= 0 ? actionTimestamp : null,
       },
     });
 
@@ -1062,13 +1399,13 @@ async function ensurePositionForSpreadBundle(input: {
         positionId: existingSpread.position.id,
         actionTimestamp,
         actionType: closeActionType,
-        actionEffect: ActionEffectType.CLOSE,
+        actionEffect: remainingQty > 0 ? ActionEffectType.REDUCE : ActionEffectType.CLOSE,
         amount: toDecimalString(premiumPerUnit),
         feeAmount: toDecimalString(feeAmount),
         currency: importCurrency,
         quantity: toDecimalString(quantity),
         premiumPerUnit: toDecimalString(premiumPerUnit),
-        resultingStatus: PositionStatus.CLOSED,
+        resultingStatus: nextStatus,
         notes: `Imported spread close from MooMoo (${importReference})`,
         brokerReference: importReference,
       },
@@ -1124,7 +1461,100 @@ async function ensurePositionForSpreadBundle(input: {
     };
   }
 
-  const actionType = summaryIsSell ? PositionActionType.STO : PositionActionType.BTO;
+  if (
+    existingSpread &&
+    ((summaryIsSell && existingOpenedBySto) || (summaryIsBuy && existingOpenedByBto))
+  ) {
+    // When MooMoo exports the same spread on multiple days with identical expiry/strikes,
+    // keep it as one position and increase the active leg quantities. This prevents later
+    // bundle closes from attaching to only one of several duplicate positions.
+    const currentSpreadQty = getActiveSpreadQuantity(existingSpread.activeOptionLegs);
+    const nextQty = currentSpreadQty + quantity;
+
+    for (const leg of existingSpread.activeOptionLegs) {
+      await prisma.positionLeg.update({
+        where: { id: leg.id },
+        data: {
+          quantity: toDecimalString(nextQty),
+          legStatus: LegStatus.OPEN,
+          closedAt: null,
+        },
+      });
+    }
+
+    await prisma.position.update({
+      where: { id: existingSpread.position.id },
+      data: {
+        currentStatus: PositionStatus.OPEN,
+        closedAt: null,
+      },
+    });
+
+    await prisma.positionAction.create({
+      data: {
+        positionId: existingSpread.position.id,
+        actionTimestamp,
+        actionType,
+        actionEffect: ActionEffectType.INCREASE,
+        amount: toDecimalString(premiumPerUnit),
+        feeAmount: toDecimalString(feeAmount),
+        currency: importCurrency,
+        quantity: toDecimalString(quantity),
+        premiumPerUnit: toDecimalString(premiumPerUnit),
+        resultingStatus: PositionStatus.OPEN,
+        notes: `Imported spread quantity increase from MooMoo (${importReference})`,
+        brokerReference: importReference,
+      },
+    });
+
+    const premiumNotional = Math.abs(premiumPerUnit * quantity * 100);
+    const primaryCashAmount = actionType === PositionActionType.STO ? premiumNotional : -premiumNotional;
+
+    const ledgerEntries: Array<{
+      brokerAccountId: string;
+      txnTimestamp: Date;
+      txnType: CashTxnType;
+      amount: string;
+      currency: string;
+      linkedHoldingId?: string;
+      linkedPositionId?: string;
+      description: string;
+      externalReference: string;
+    }> = [
+      {
+        brokerAccountId,
+        txnTimestamp: actionTimestamp,
+        txnType: CashTxnType.OPTIONS_PREMIUM,
+        amount: toDecimalString(primaryCashAmount),
+        currency: importCurrency,
+        linkedPositionId: existingSpread.position.id,
+        description: `Imported ${actionType} premium for ${summaryRow.symbol}`,
+        externalReference: `${importReference}:POSITION:PRIMARY`,
+      },
+    ];
+
+    if (feeAmount > 0) {
+      ledgerEntries.push({
+        brokerAccountId,
+        txnTimestamp: actionTimestamp,
+        txnType: "COMMISSION",
+        amount: toDecimalString(-feeAmount),
+        currency: importCurrency,
+        linkedPositionId: existingSpread.position.id,
+        description: `Imported position fee for ${summaryRow.symbol}`,
+        externalReference: `${importReference}:POSITION:FEE`,
+      });
+    }
+
+    await prisma.cashLedger.createMany({ data: ledgerEntries });
+
+    return {
+      positionCreated: 0,
+      positionActionCreated: 1,
+      cashLedgerEntriesCreated: ledgerEntries.length,
+    };
+  }
+
   const strategyType = deriveStrategyTypeForSpreadPosition({
     spreadLegs,
     actionType,
@@ -2449,18 +2879,23 @@ export async function importMoomooCsv(input: ImportMoomooCsvInput): Promise<Impo
       continue;
     }
 
-    if (!isImportable) {
-      continue;
-    }
+      if (!isImportable) {
+        continue;
+      }
 
-    const spreadComponents = findSpreadSummaryComponentRows(row, preview.rows);
-    const expiredBundleRows = findExpiredOptionBundleRows(row, preview.rows);
+      const spreadComponents = findSpreadSummaryComponentRows(row, preview.rows);
+      const expiredBundleRows = findExpiredOptionBundleRows(row, preview.rows);
 
-    if (shouldSkipSpreadSummaryRow(row) && !spreadComponents) {
-      await prisma.rawTransaction.update({
-        where: { id: rawTransaction.id },
-        data: {
-          processingNotes: "Skipped: spread summary row (component legs imported separately)",
+      const shouldProcessAsSingleLegRollSummary = spreadComponents && await shouldSkipSpreadSummaryAsSingleLegRoll({
+        brokerAccountId: input.brokerAccountId,
+        componentRows: spreadComponents.componentRows,
+      });
+
+      if (shouldSkipSpreadSummaryRow(row) && !spreadComponents) {
+        await prisma.rawTransaction.update({
+          where: { id: rawTransaction.id },
+          data: {
+            processingNotes: "Skipped: spread summary row (component legs imported separately)",
         },
       });
       continue;
@@ -2486,6 +2921,14 @@ export async function importMoomooCsv(input: ImportMoomooCsvInput): Promise<Impo
         if (expiredBundleRows) {
           result = await ensurePositionExpiredWorthlessBundle({
             componentRows: expiredBundleRows,
+            brokerAccountId: input.brokerAccountId,
+            importBatchId: importBatch.id,
+            importCurrency,
+          });
+        } else if (shouldProcessAsSingleLegRollSummary && spreadComponents) {
+          result = await ensureSingleLegRollFromSpreadSummaryRow({
+            summaryRow: row,
+            componentRows: spreadComponents.componentRows,
             brokerAccountId: input.brokerAccountId,
             importBatchId: importBatch.id,
             importCurrency,

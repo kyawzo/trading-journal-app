@@ -1,8 +1,8 @@
 import Link from "next/link";
+import { PositionStatus } from "@prisma/client";
 import { requireCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/prisma";
 import { formatCurrency, formatNumber } from "@/src/lib/pnl";
-import { calculateCashLedgerSummary } from "@/src/lib/cash-ledger";
 import {
   formatActiveBrokerLabel,
   formatBrokerAccountLabel,
@@ -10,12 +10,35 @@ import {
   getWorkspacePreference,
 } from "@/src/lib/workspace-preference";
 
+function formatPercent(value: number) {
+  return `${value.toFixed(1)}%`;
+}
+
 export default async function DashboardPage() {
   const user = await requireCurrentUser("/dashboard");
   const workspace = await getWorkspacePreference();
   const brokerWhere = getBrokerScopedWhere(workspace.activeBrokerAccountId);
+  const closedStatuses = [
+    PositionStatus.CLOSED,
+    PositionStatus.EXPIRED,
+    PositionStatus.ASSIGNED,
+    PositionStatus.EXERCISED,
+    PositionStatus.CANCELLED,
+    PositionStatus.ARCHIVED,
+  ];
 
-  const [brokerAccountCount, positions, holdings, cashEntries, positionsPnlAggregate, holdingsPnlAggregate] = await Promise.all([
+  const [
+    brokerAccountCount,
+    recentPositions,
+    recentActiveHoldings,
+    openPositionCount,
+    activeHoldingCount,
+    inactiveHoldingCount,
+    cashLedgerCount,
+    cashLedgerAggregate,
+    positionsPnlAggregate,
+    holdingsPnlAggregate,
+  ] = await Promise.all([
     prisma.brokerAccount.count({
       where: { userId: user.id },
     }),
@@ -32,9 +55,12 @@ export default async function DashboardPage() {
       },
     }),
     prisma.holding.findMany({
-      where: brokerWhere,
+      where: {
+        ...brokerWhere,
+        remainingQuantity: { gt: 0 },
+      },
       orderBy: { openedAt: "desc" },
-      take: 6,
+      take: 4,
       include: {
         brokerAccount: {
           include: {
@@ -49,21 +75,59 @@ export default async function DashboardPage() {
         },
       },
     }),
-    prisma.cashLedger.findMany({
-      where: brokerWhere,
-      orderBy: [{ txnTimestamp: "desc" }, { createdAt: "desc" }],
-      take: 100,
+    prisma.position.count({
+      where: {
+        ...brokerWhere,
+        currentStatus: {
+          notIn: [...closedStatuses],
+        },
+      },
     }),
-    prisma.positionPnlSnapshot.aggregate({
+    prisma.holding.count({
+      where: {
+        ...brokerWhere,
+        remainingQuantity: { gt: 0 },
+      },
+    }),
+    prisma.holding.count({
+      where: {
+        ...brokerWhere,
+        remainingQuantity: { lte: 0 },
+      },
+    }),
+    prisma.cashLedger.count({
+      where: brokerWhere,
+    }),
+    prisma.cashLedger.aggregate({
       where: brokerWhere,
       _sum: {
+        amount: true,
+      },
+    }),
+    prisma.positionPnlSnapshot.aggregate({
+      where: {
+        ...brokerWhere,
+        position: {
+          currentStatus: {
+            in: [
+              PositionStatus.CLOSED,
+              PositionStatus.EXPIRED,
+              PositionStatus.ASSIGNED,
+              PositionStatus.EXERCISED,
+            ],
+          },
+        },
+      },
+      _sum: {
         netCashFlow: true,
+        grossDebits: true,
       },
     }),
     prisma.holdingPnlSnapshot.aggregate({
       where: brokerWhere,
       _sum: {
         estimatedRealizedPnl: true,
+        estimatedCostOfSoldShares: true,
         estimatedOpenCost: true,
       },
     }),
@@ -72,17 +136,16 @@ export default async function DashboardPage() {
   const hasBrokerAccounts = brokerAccountCount > 0;
   const hasActiveBroker = Boolean(workspace.activeBrokerAccountId);
   const needsBrokerSetup = !hasBrokerAccounts || !hasActiveBroker;
-  const closedStatuses = new Set(["CLOSED", "EXPIRED", "EXPIRED_WORTHLESS", "ASSIGNED", "EXERCISED"]);
-  const activePositions = positions.filter((position) => !closedStatuses.has(position.currentStatus)).length;
-  const activeHoldings = holdings.filter((holding) => Number(holding.remainingQuantity.toString()) > 0);
-  const inactiveHoldings = holdings.length - activeHoldings.length;
-  const cashSummary = calculateCashLedgerSummary(cashEntries);
   const totalPositionsPnl = Number(positionsPnlAggregate._sum.netCashFlow?.toString() ?? 0);
+  const totalPositionsCapital = Number(positionsPnlAggregate._sum.grossDebits?.toString() ?? 0);
+  const positionsRoic = totalPositionsCapital > 0 ? (totalPositionsPnl / totalPositionsCapital) * 100 : 0;
   const totalHoldingsPnl = Number(holdingsPnlAggregate._sum.estimatedRealizedPnl?.toString() ?? 0);
+  const totalHoldingsCostOfSold = Number(holdingsPnlAggregate._sum.estimatedCostOfSoldShares?.toString() ?? 0);
+  const holdingsRoic = totalHoldingsCostOfSold > 0 ? (totalHoldingsPnl / totalHoldingsCostOfSold) * 100 : 0;
   const totalOpenHoldingCost = Number(holdingsPnlAggregate._sum.estimatedOpenCost?.toString() ?? 0);
+  const currentCashBalance = Number(cashLedgerAggregate._sum.amount?.toString() ?? 0);
   const dashboardCurrency =
-    holdings[0]?.pnlSnapshot?.currency ??
-    cashEntries[0]?.currency ??
+    recentActiveHoldings[0]?.pnlSnapshot?.currency ??
     workspace.activeBrokerAccount?.baseCurrency ??
     "USD";
 
@@ -141,32 +204,42 @@ export default async function DashboardPage() {
 
         <div className="stats-grid">
           <div className="stat-card">
-            <p className="stat-label">Positions PnL</p>
-            <p className={totalPositionsPnl >= 0 ? "stat-value-positive" : "stat-value-negative"}>
-              {formatCurrency(totalPositionsPnl, dashboardCurrency)}
-            </p>
+            <p className="stat-label">Positions Realized P/L</p>
+            <div className="flex items-baseline justify-between gap-3">
+              <p className={totalPositionsPnl >= 0 ? "stat-value-positive" : "stat-value-negative"}>
+                {formatCurrency(totalPositionsPnl, dashboardCurrency)}
+              </p>
+              <p className={positionsRoic >= 0 ? "stat-value-positive text-lg" : "stat-value-negative text-lg"}>
+                {formatPercent(positionsRoic)}
+              </p>
+            </div>
           </div>
           <div className="stat-card">
-            <p className="stat-label">Holdings PnL</p>
-            <p className={totalHoldingsPnl >= 0 ? "stat-value-positive" : "stat-value-negative"}>
-              {formatCurrency(totalHoldingsPnl, dashboardCurrency)}
-            </p>
+            <p className="stat-label">Holdings Realized P/L</p>
+            <div className="flex items-baseline justify-between gap-3">
+              <p className={totalHoldingsPnl >= 0 ? "stat-value-positive" : "stat-value-negative"}>
+                {formatCurrency(totalHoldingsPnl, dashboardCurrency)}
+              </p>
+              <p className={holdingsRoic >= 0 ? "stat-value-positive text-lg" : "stat-value-negative text-lg"}>
+                {formatPercent(holdingsRoic)}
+              </p>
+            </div>
           </div>
           <div className="stat-card">
             <p className="stat-label">Open Positions</p>
-            <p className="stat-value">{activePositions}</p>
+            <p className="stat-value">{openPositionCount}</p>
           </div>
           <div className="stat-card">
             <p className="stat-label">Active Holdings</p>
-            <p className="stat-value">{activeHoldings.length}</p>
+            <p className="stat-value">{activeHoldingCount}</p>
           </div>
         </div>
 
         <div className="stats-grid">
           <div className="stat-card">
             <p className="stat-label">Active Broker Cash</p>
-            <p className={cashSummary.currentBalance >= 0 ? "stat-value-positive" : "stat-value-negative"}>
-              {formatCurrency(cashSummary.currentBalance, cashSummary.currency)}
+            <p className={currentCashBalance >= 0 ? "stat-value-positive" : "stat-value-negative"}>
+              {formatCurrency(currentCashBalance, dashboardCurrency)}
             </p>
           </div>
           <div className="stat-card">
@@ -175,11 +248,11 @@ export default async function DashboardPage() {
           </div>
           <div className="stat-card">
             <p className="stat-label">Ledger Entries</p>
-            <p className="stat-value">{cashEntries.length}</p>
+            <p className="stat-value">{cashLedgerCount}</p>
           </div>
           <div className="stat-card">
             <p className="stat-label">Inactive Holdings</p>
-            <p className="stat-value">{inactiveHoldings}</p>
+            <p className="stat-value">{inactiveHoldingCount}</p>
           </div>
         </div>
       </section>
@@ -194,11 +267,11 @@ export default async function DashboardPage() {
             <Link href="/positions" className="btn-ghost">All Positions</Link>
           </div>
 
-          {positions.length === 0 ? (
+          {recentPositions.length === 0 ? (
             <div className="empty-state">No positions yet for the active broker account. Create the first one from this dashboard.</div>
           ) : (
             <ul className="list-stack">
-              {positions.map((position) => (
+              {recentPositions.map((position) => (
                 <li key={position.id} className="list-card">
                   <Link href={`/positions/${position.id}`} className="list-link">
                     <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -229,11 +302,11 @@ export default async function DashboardPage() {
               <Link href="/holdings" className="btn-ghost">All Holdings</Link>
             </div>
 
-            {activeHoldings.length === 0 ? (
+            {recentActiveHoldings.length === 0 ? (
               <div className="empty-state">No active holdings right now for the selected broker account.</div>
             ) : (
               <ul className="list-stack">
-                {activeHoldings.slice(0, 4).map((holding) => {
+                {recentActiveHoldings.map((holding) => {
                   const remainingShares = Number(holding.remainingQuantity.toString());
                   const estimatedOpenCost = Number(holding.pnlSnapshot?.estimatedOpenCost?.toString() ?? 0);
                   const pnlCurrency = holding.pnlSnapshot?.currency ?? dashboardCurrency;

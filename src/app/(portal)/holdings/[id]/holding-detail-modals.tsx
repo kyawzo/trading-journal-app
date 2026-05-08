@@ -28,6 +28,8 @@ export function HoldingDetailModals({
   defaultEventTimestamp,
 }: HoldingDetailModalsProps) {
   const [activeModal, setActiveModal] = useState<"manage" | "archive" | "event" | null>(null);
+  const [newEventType, setNewEventType] = useState("SOLD");
+  const isSplitEvent = newEventType === "SPLIT";
 
   return (
     <>
@@ -60,16 +62,23 @@ export function HoldingDetailModals({
             <form method="POST" action={`/api/holdings/${holdingId}/events`} className="flex min-h-0 flex-1 flex-col">
               <div style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingRight: "0.35rem" }} className="space-y-4">
               <div className="form-grid">
-                <label className="field-stack"><span className="field-label">Event Type</span><select name="eventType" defaultValue="SOLD" className="select-field"><option value="SOLD">Sold</option><option value="PARTIAL_SELL">Partial Sell</option><option value="CALLED_AWAY">Called Away</option><option value="DIVIDEND">Dividend</option><option value="ADJUSTMENT">Adjustment</option><option value="NOTE">Note</option><option value="TRANSFER_OUT">Transfer Out</option><option value="TRANSFER_IN">Transfer In</option><option value="ACQUIRED">Acquired</option></select></label>
+                <label className="field-stack"><span className="field-label">Event Type</span><select name="eventType" value={newEventType} onChange={(event) => setNewEventType(event.target.value)} className="select-field"><option value="SOLD">Sold</option><option value="PARTIAL_SELL">Partial Sell</option><option value="CALLED_AWAY">Called Away</option><option value="DIVIDEND">Dividend</option><option value="SPLIT">Split / Reverse Split</option><option value="ADJUSTMENT">Adjustment</option><option value="NOTE">Note</option><option value="TRANSFER_OUT">Transfer Out</option><option value="TRANSFER_IN">Transfer In</option><option value="ACQUIRED">Acquired</option></select></label>
                 <label className="field-stack"><span className="field-label">Event Time</span><input name="eventTimestamp" type="datetime-local" defaultValue={defaultEventTimestamp} className="input-field" required /></label>
                 <label className="field-stack"><span className="field-label">Quantity</span><input name="quantity" type="number" step="0.0001" className="input-field" /></label>
                 <label className="field-stack"><span className="field-label">Price Per Share</span><input name="pricePerShare" type="number" step="0.0001" className="input-field" /></label>
                 <label className="field-stack"><span className="field-label">Fee Amount</span><input name="feeAmount" type="number" step="0.01" defaultValue="0" className="input-field" /></label>
               </div>
 
+              {isSplitEvent ? (
+                <div className="form-grid">
+                  <label className="field-stack"><span className="field-label">Split Ratio Numerator</span><input name="splitRatioNumerator" type="number" step="0.0001" className="input-field" placeholder="1" /></label>
+                  <label className="field-stack"><span className="field-label">Split Ratio Denominator</span><input name="splitRatioDenominator" type="number" step="0.0001" className="input-field" placeholder="10" /></label>
+                </div>
+              ) : null}
+
               <label className="field-stack"><span className="field-label">Notes</span><textarea name="notes" rows={3} className="textarea-field min-h-24" placeholder="Partial stock sale, called away by short call, dividend received, manual share adjustment..." /></label>
 
-              <p className="note">For price-based stock events, total amount is calculated automatically from quantity x price per share. <code>ACQUIRED</code> posts stock cash outflow, sell and called-away events post stock cash inflow, and <code>TRANSFER_IN</code> / <code>TRANSFER_OUT</code> only affect inventory. Currency follows broker account base currency.</p>
+              <p className="note">For price-based stock events, total amount is calculated automatically from quantity x price per share. <code>ACQUIRED</code> posts stock cash outflow, sell and called-away events post stock cash inflow, <code>TRANSFER_IN</code> / <code>TRANSFER_OUT</code> only affect inventory, and <code>SPLIT</code> / reverse split only updates share counts plus cost basis math without posting cash. Currency follows broker account base currency.</p>
               </div>
 
               <div className="modal-actions pt-6" style={{ borderTop: "1px solid var(--line)" }}>

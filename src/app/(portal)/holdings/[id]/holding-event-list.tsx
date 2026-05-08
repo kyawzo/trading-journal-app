@@ -8,6 +8,8 @@ type HoldingEventItem = {
   eventTimestampDisplay: string;
   eventTimestampValue: string;
   quantity: string | null;
+  splitRatioNumerator: string | null;
+  splitRatioDenominator: string | null;
   pricePerShare: string | null;
   amount: string | null;
   feeAmount: string;
@@ -25,6 +27,7 @@ type HoldingEventListProps = {
 export function HoldingEventList({ holdingId, events }: HoldingEventListProps) {
   const [activeEventId, setActiveEventId] = useState<string | null>(null);
   const activeEvent = activeEventId ? events.find((event) => event.id === activeEventId) ?? null : null;
+  const [activeEventType, setActiveEventType] = useState<string | null>(null);
 
   return (
     <>
@@ -49,12 +52,18 @@ export function HoldingEventList({ holdingId, events }: HoldingEventListProps) {
                 <form id="holding-event-update-form" method="POST" action={`/api/holdings/${holdingId}/events/${activeEvent.id}`} className="space-y-4">
                   <input type="hidden" name="intent" value="update" />
                   <div className="form-grid">
-                    <label className="field-stack"><span className="field-label">Event Type</span><select name="eventType" defaultValue={activeEvent.eventType} className="select-field"><option value="SOLD">Sold</option><option value="PARTIAL_SELL">Partial Sell</option><option value="CALLED_AWAY">Called Away</option><option value="DIVIDEND">Dividend</option><option value="ADJUSTMENT">Adjustment</option><option value="NOTE">Note</option><option value="TRANSFER_OUT">Transfer Out</option><option value="TRANSFER_IN">Transfer In</option><option value="ACQUIRED">Acquired</option></select></label>
+                    <label className="field-stack"><span className="field-label">Event Type</span><select name="eventType" value={activeEventType ?? activeEvent.eventType} onChange={(event) => setActiveEventType(event.target.value)} className="select-field"><option value="SOLD">Sold</option><option value="PARTIAL_SELL">Partial Sell</option><option value="CALLED_AWAY">Called Away</option><option value="DIVIDEND">Dividend</option><option value="SPLIT">Split / Reverse Split</option><option value="ADJUSTMENT">Adjustment</option><option value="NOTE">Note</option><option value="TRANSFER_OUT">Transfer Out</option><option value="TRANSFER_IN">Transfer In</option><option value="ACQUIRED">Acquired</option></select></label>
                     <label className="field-stack"><span className="field-label">Event Time</span><input name="eventTimestamp" type="datetime-local" defaultValue={activeEvent.eventTimestampValue} className="input-field" required /></label>
                     <label className="field-stack"><span className="field-label">Quantity</span><input name="quantity" type="number" step="0.0001" defaultValue={activeEvent.quantity ?? ""} className="input-field" /></label>
                     <label className="field-stack"><span className="field-label">Price Per Share</span><input name="pricePerShare" type="number" step="0.0001" defaultValue={activeEvent.pricePerShare ?? ""} className="input-field" /></label>
                     <label className="field-stack"><span className="field-label">Fee Amount</span><input name="feeAmount" type="number" step="0.01" defaultValue={activeEvent.feeAmount} className="input-field" /></label>
                   </div>
+                  {(activeEventType ?? activeEvent.eventType) === "SPLIT" ? (
+                    <div className="form-grid">
+                      <label className="field-stack"><span className="field-label">Split Ratio Numerator</span><input name="splitRatioNumerator" type="number" step="0.0001" defaultValue={activeEvent.splitRatioNumerator ?? ""} className="input-field" /></label>
+                      <label className="field-stack"><span className="field-label">Split Ratio Denominator</span><input name="splitRatioDenominator" type="number" step="0.0001" defaultValue={activeEvent.splitRatioDenominator ?? ""} className="input-field" /></label>
+                    </div>
+                  ) : null}
                   <label className="field-stack"><span className="field-label">Notes</span><textarea name="notes" rows={3} defaultValue={activeEvent.notes ?? ""} className="textarea-field min-h-24" /></label>
                 </form>
 
@@ -94,12 +103,13 @@ export function HoldingEventList({ holdingId, events }: HoldingEventListProps) {
                       <span className="chip-neutral">{event.currency}</span>
                       {event.positionActionType ? <span className="chip">{event.positionActionType}</span> : null}
                     </div>
-                    <button type="button" className="btn-ghost" onClick={() => setActiveEventId(event.id)}>Manage Event</button>
+                    <button type="button" className="btn-ghost" onClick={() => { setActiveEventId(event.id); setActiveEventType(event.eventType); }}>Manage Event</button>
                   </div>
                 </div>
 
                 <div className="event-metric-grid">
                   {event.quantity !== null ? <div className="event-metric-card"><p className="event-metric-label">Quantity</p><p className="event-metric-value">{event.quantity}</p></div> : null}
+                  {event.splitRatioNumerator !== null && event.splitRatioDenominator !== null ? <div className="event-metric-card"><p className="event-metric-label">Split Ratio</p><p className="event-metric-value">{event.splitRatioNumerator} : {event.splitRatioDenominator}</p></div> : null}
                   {event.pricePerShare !== null ? <div className="event-metric-card"><p className="event-metric-label">Price / Share</p><p className="event-metric-value">{event.pricePerShare}</p></div> : null}
                   {event.amount !== null ? <div className="event-metric-card"><p className="event-metric-label">Amount</p><p className="event-metric-value">{event.amount} {event.currency}</p></div> : null}
                   <div className="event-metric-card"><p className="event-metric-label">Fee</p><p className="event-metric-value">{event.feeAmount} {event.currency}</p></div>
