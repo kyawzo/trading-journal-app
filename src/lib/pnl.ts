@@ -148,6 +148,8 @@ export function calculateHoldingPnlSummary(holding: {
   holdingEvents: Array<{
     eventType: string;
     quantity: unknown;
+    splitRatioNumerator?: unknown;
+    splitRatioDenominator?: unknown;
     pricePerShare: unknown;
     amount: unknown;
     feeAmount: unknown;
@@ -165,11 +167,17 @@ export function calculateHoldingPnlSummary(holding: {
   let dispositionFees = 0;
   let totalFees = 0;
   let currency = "USD";
+  let openShares = 0;
+  let openCostBasis = 0;
+  let estimatedCostOfSoldShares = 0;
 
   for (const event of holding.holdingEvents) {
     currency = event.currency || currency;
 
     const quantity = toNumber(event.quantity);
+    const splitRatioNumerator = toNumber(event.splitRatioNumerator);
+    const splitRatioDenominator = toNumber(event.splitRatioDenominator);
+    const splitRatio = splitRatioDenominator > 0 ? splitRatioNumerator / splitRatioDenominator : 0;
     const fee = Math.abs(toNumber(event.feeAmount));
     const explicitAmount = Math.abs(toNumber(event.amount));
     const pricePerShare = toNumber(event.pricePerShare);
@@ -182,19 +190,32 @@ export function calculateHoldingPnlSummary(holding: {
       acquiredShares += quantity;
       grossPurchaseCost += amount;
       acquisitionFees += fee;
+      openShares += quantity;
+      openCostBasis += amount + fee;
     }
 
     if (SELL_EVENT_TYPES.has(event.eventType)) {
+      const costBasisPerOpenShare = openShares > 0 ? openCostBasis / openShares : costBasisPerShare;
+      const soldShareCost = quantity * costBasisPerOpenShare;
+
       soldShares += quantity;
       grossSaleProceeds += amount;
       dispositionFees += fee;
+      estimatedCostOfSoldShares += soldShareCost;
+      openShares = Math.max(openShares - quantity, 0);
+      openCostBasis = Math.max(openCostBasis - soldShareCost, 0);
+    }
+
+    if (event.eventType === "SPLIT" && splitRatio > 0) {
+      acquiredShares *= splitRatio;
+      soldShares *= splitRatio;
+      openShares *= splitRatio;
     }
   }
 
-  const effectiveCostBasisPerShare = acquiredShares > 0
-    ? (grossPurchaseCost + acquisitionFees) / acquiredShares
+  const effectiveCostBasisPerShare = openShares > 0
+    ? openCostBasis / openShares
     : costBasisPerShare;
-  const estimatedCostOfSoldShares = soldShares * effectiveCostBasisPerShare;
   const estimatedRealizedPnl = grossSaleProceeds - estimatedCostOfSoldShares - dispositionFees;
   const estimatedOpenCost = remainingQuantity * effectiveCostBasisPerShare;
 

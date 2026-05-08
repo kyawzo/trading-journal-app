@@ -46,11 +46,15 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const eventTimestampRaw = ((form.get("eventTimestamp") as string) || "").trim();
   const quantityRaw = ((form.get("quantity") as string) || "").trim();
   const pricePerShareRaw = ((form.get("pricePerShare") as string) || "").trim();
+  const splitRatioNumeratorRaw = ((form.get("splitRatioNumerator") as string) || "").trim();
+  const splitRatioDenominatorRaw = ((form.get("splitRatioDenominator") as string) || "").trim();
   const feeAmountRaw = ((form.get("feeAmount") as string) || "0").trim();
   const notes = ((form.get("notes") as string) || "").trim();
 
   const quantity = parseHoldingNumberInput(quantityRaw);
   const pricePerShare = parseHoldingNumberInput(pricePerShareRaw);
+  const splitRatioNumerator = parseHoldingNumberInput(splitRatioNumeratorRaw);
+  const splitRatioDenominator = parseHoldingNumberInput(splitRatioDenominatorRaw);
   const feeAmount = parseHoldingNumberInput(feeAmountRaw) ?? 0;
   const eventTimestamp = eventTimestampRaw ? new Date(eventTimestampRaw) : new Date();
 
@@ -72,6 +76,12 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
 
   if (QUANTITY_REQUIRED_EVENT_TYPES.has(eventType) && (quantity === null || quantity <= 0)) {
     return redirectWithMessage(req, id, "error", "Quantity must be greater than zero for this event type.");
+  }
+
+  if (eventType === "SPLIT") {
+    if (splitRatioNumerator === null || splitRatioNumerator <= 0 || splitRatioDenominator === null || splitRatioDenominator <= 0) {
+      return redirectWithMessage(req, id, "error", "Split ratio numerator and denominator must both be greater than zero.");
+    }
   }
 
   if (eventType === "ADJUSTMENT" && quantityRaw && quantity === null) {
@@ -105,6 +115,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       eventTimestamp,
       eventType: eventType as HoldingEventType,
       quantity: quantityRaw ? quantityRaw : null,
+      splitRatioNumerator: eventType === "SPLIT" && splitRatioNumeratorRaw ? splitRatioNumeratorRaw : null,
+      splitRatioDenominator: eventType === "SPLIT" && splitRatioDenominatorRaw ? splitRatioDenominatorRaw : null,
       pricePerShare: pricePerShareRaw ? pricePerShareRaw : null,
       amount: resolvedAmount !== null ? resolvedAmount.toString() : null,
       feeAmount: feeAmount.toString(),

@@ -5,7 +5,7 @@ import { PaginationControls } from "@/src/app/components/pagination-controls";
 import { requireCurrentUser } from "@/src/lib/auth";
 import { prisma } from "@/src/lib/prisma";
 import { attachRunningBalances, calculateCashLedgerSummary, formatCashTxnType } from "@/src/lib/cash-ledger";
-import { paginationMeta, parsePositiveInt } from "@/src/lib/listing-pagination";
+import { buildListingHref, paginationMeta, parsePositiveInt } from "@/src/lib/listing-pagination";
 import { formatCurrency } from "@/src/lib/pnl";
 import {
   formatActiveBrokerLabel,
@@ -87,43 +87,70 @@ export default async function CashLedgerPage({ searchParams }: PageProps) {
       : {}),
   };
 
-  const totalCount = await prisma.cashLedger.count({ where });
+  const [totalCount, summarySourceEntries, entries] = await Promise.all([
+    prisma.cashLedger.count({ where }),
+    prisma.cashLedger.findMany({
+      where,
+      select: {
+        id: true,
+        txnType: true,
+        amount: true,
+        currency: true,
+        txnTimestamp: true,
+        createdAt: true,
+      },
+      orderBy: [{ txnTimestamp: "desc" }, { createdAt: "desc" }],
+    }),
+    prisma.cashLedger.findMany({
+      where,
+      orderBy: [{ txnTimestamp: "desc" }, { createdAt: "desc" }],
+      skip: Math.max(currentPage - 1, 0) * PAGE_SIZE,
+      take: PAGE_SIZE,
+    }),
+  ]);
   const meta = paginationMeta(totalCount, currentPage, PAGE_SIZE);
 
-  const entries = await prisma.cashLedger.findMany({
-    where,
-    orderBy: [{ txnTimestamp: "desc" }, { createdAt: "desc" }],
-    skip: meta.skip,
-    take: meta.pageSize,
+  const entryBalances = new Map(
+    attachRunningBalances(summarySourceEntries).map((entry) => [
+      entry.id,
+      {
+        signedAmount: entry.signedAmount,
+        runningBalance: entry.runningBalance,
+      },
+    ]),
+  );
+
+  const entriesWithBalance = entries.map((entry) => {
+    const balance = entryBalances.get(entry.id);
+    return {
+      ...entry,
+      signedAmount: balance?.signedAmount ?? Number(entry.amount),
+      runningBalance: balance?.runningBalance ?? 0,
+    };
   });
 
-  const summary = calculateCashLedgerSummary(entries);
-  const entriesWithBalance = attachRunningBalances(entries).reverse();
+  const summary = calculateCashLedgerSummary(summarySourceEntries);
 
   const makeHref = (nextPage: number) => {
-    const params = new URLSearchParams();
-    if (directionFilter !== "all") {
-      params.set("direction", directionFilter);
-    }
-    if (txnTypeFilter !== "all") {
-      params.set("txnType", txnTypeFilter);
-    }
-    if (textQuery) {
-      params.set("q", textQuery);
-    }
-    if (fromValue) {
-      params.set("from", fromValue);
-    }
-    if (toValue) {
-      params.set("to", toValue);
-    }
-    if (nextPage > 1) {
-      params.set("page", String(nextPage));
-    }
-
-    const query = params.toString();
-    return query ? `/cash-ledger?${query}` : "/cash-ledger";
+    return buildListingHref("/cash-ledger", [
+      ["direction", directionFilter !== "all" ? directionFilter : null],
+      ["txnType", txnTypeFilter !== "all" ? txnTypeFilter : null],
+      ["q", textQuery || null],
+      ["from", fromValue],
+      ["to", toValue],
+      ["page", nextPage > 1 ? nextPage : null],
+    ]);
   };
+
+  const makeDirectionHref = (nextDirection: "all" | "inflow" | "outflow") => (
+    buildListingHref("/cash-ledger", [
+      ["direction", nextDirection !== "all" ? nextDirection : null],
+      ["txnType", txnTypeFilter !== "all" ? txnTypeFilter : null],
+      ["q", textQuery || null],
+      ["from", fromValue],
+      ["to", toValue],
+    ])
+  );
 
   return (
     <main className="page-shell">
@@ -160,9 +187,9 @@ export default async function CashLedgerPage({ searchParams }: PageProps) {
         </div>
 
         <div className="item-row">
-          <Link href="/cash-ledger" className={directionFilter === "all" ? "btn-primary" : "btn-ghost"}>All</Link>
-          <Link href="/cash-ledger?direction=inflow" className={directionFilter === "inflow" ? "btn-primary" : "btn-ghost"}>Inflows</Link>
-          <Link href="/cash-ledger?direction=outflow" className={directionFilter === "outflow" ? "btn-primary" : "btn-ghost"}>Outflows</Link>
+          <Link href={makeDirectionHref("all")} className={directionFilter === "all" ? "btn-primary" : "btn-ghost"}>All</Link>
+          <Link href={makeDirectionHref("inflow")} className={directionFilter === "inflow" ? "btn-primary" : "btn-ghost"}>Inflows</Link>
+          <Link href={makeDirectionHref("outflow")} className={directionFilter === "outflow" ? "btn-primary" : "btn-ghost"}>Outflows</Link>
         </div>
 
         <form method="GET" action="/cash-ledger" className="panel section-stack">
@@ -192,7 +219,12 @@ export default async function CashLedgerPage({ searchParams }: PageProps) {
           </label>
           <div className="hero-actions mt-4">
             <button type="submit" className="btn-primary">Apply Filters</button>
-            <Link href={directionFilter === "all" ? "/cash-ledger" : `/cash-ledger?direction=${directionFilter}`} className="btn-ghost">Reset Filters</Link>
+            <Link
+              href={buildListingHref("/cash-ledger", [["direction", directionFilter !== "all" ? directionFilter : null]])}
+              className="btn-ghost"
+            >
+              Reset Filters
+            </Link>
           </div>
         </form>
 

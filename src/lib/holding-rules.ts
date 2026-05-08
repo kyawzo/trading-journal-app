@@ -26,6 +26,8 @@ const REDUCE_EVENT_TYPES = new Set(["SOLD", "PARTIAL_SELL", "CALLED_AWAY", "TRAN
 type HoldingEventLike = {
   eventType: string;
   quantity: unknown;
+  splitRatioNumerator?: unknown;
+  splitRatioDenominator?: unknown;
   eventTimestamp: Date;
   createdAt?: Date;
 };
@@ -60,6 +62,9 @@ export function calculateHoldingStateFromEvents(events: HoldingEventLike[]) {
 
   for (const event of orderedEvents) {
     const quantity = toNumber(event.quantity);
+    const splitRatioNumerator = toNumber(event.splitRatioNumerator);
+    const splitRatioDenominator = toNumber(event.splitRatioDenominator);
+    const splitRatio = splitRatioDenominator > 0 ? splitRatioNumerator / splitRatioDenominator : 0;
 
     if (ACQUIRE_EVENT_TYPES.has(event.eventType)) {
       totalQuantity += quantity;
@@ -84,6 +89,12 @@ export function calculateHoldingStateFromEvents(events: HoldingEventLike[]) {
     if (event.eventType === "ADJUSTMENT") {
       totalQuantity += Math.max(quantity, 0);
       remainingQuantity += quantity;
+      continue;
+    }
+
+    if (event.eventType === "SPLIT" && splitRatio > 0) {
+      totalQuantity *= splitRatio;
+      remainingQuantity *= splitRatio;
     }
   }
 

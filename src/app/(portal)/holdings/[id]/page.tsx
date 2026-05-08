@@ -266,6 +266,8 @@ export default async function HoldingDetailPage({ params, searchParams }: PagePr
           eventTimestampDisplay: new Date(event.eventTimestamp).toLocaleString(),
           eventTimestampValue: formatDateTimeLocalInput(event.eventTimestamp),
           quantity: event.quantity?.toString() ?? null,
+          splitRatioNumerator: event.splitRatioNumerator?.toString() ?? null,
+          splitRatioDenominator: event.splitRatioDenominator?.toString() ?? null,
           pricePerShare: event.pricePerShare?.toString() ?? null,
           amount: event.amount?.toString() ?? null,
           feeAmount: event.feeAmount.toString(),

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { HoldingSourceType, Prisma } from "@prisma/client";
 import { PaginationControls } from "@/src/app/components/pagination-controls";
 import { requireCurrentUser } from "@/src/lib/auth";
-import { paginationMeta, parsePositiveInt } from "@/src/lib/listing-pagination";
+import { buildListingHref, paginationMeta, parsePositiveInt } from "@/src/lib/listing-pagination";
 import { prisma } from "@/src/lib/prisma";
 import { formatCurrency, formatNumber } from "@/src/lib/pnl";
 import {
@@ -82,25 +82,13 @@ export default async function HoldingsPage({ searchParams }: PageProps) {
   };
 
   const makeTabHref = (nextTab: "active" | "inactive") => {
-    const params = new URLSearchParams();
-    if (nextTab !== "active") {
-      params.set("tab", nextTab);
-    }
-    if (symbolQuery) {
-      params.set("q", symbolQuery);
-    }
-    if (sourceFilter !== "all") {
-      params.set("source", sourceFilter);
-    }
-    if (fromValue) {
-      params.set("from", fromValue);
-    }
-    if (toValue) {
-      params.set("to", toValue);
-    }
-
-    const query = params.toString();
-    return query ? `/holdings?${query}` : "/holdings";
+    return buildListingHref("/holdings", [
+      ["tab", nextTab !== "active" ? nextTab : null],
+      ["q", symbolQuery || null],
+      ["source", sourceFilter !== "all" ? sourceFilter : null],
+      ["from", fromValue],
+      ["to", toValue],
+    ]);
   };
 
   const totalCount = await prisma.holding.count({ where });
@@ -151,22 +139,14 @@ export default async function HoldingsPage({ searchParams }: PageProps) {
   });
 
   const makeHref = (nextPage: number) => {
-    const params = new URLSearchParams();
-    if (tabFilter !== "active") {
-      params.set("tab", tabFilter);
-    }
-    if (symbolQuery) {
-      params.set("q", symbolQuery);
-    }
-    if (sourceFilter !== "all") {
-      params.set("source", sourceFilter);
-    }
-    if (nextPage > 1) {
-      params.set("page", String(nextPage));
-    }
-
-    const query = params.toString();
-    return query ? `/holdings?${query}` : "/holdings";
+    return buildListingHref("/holdings", [
+      ["tab", tabFilter !== "active" ? tabFilter : null],
+      ["q", symbolQuery || null],
+      ["source", sourceFilter !== "all" ? sourceFilter : null],
+      ["from", fromValue],
+      ["to", toValue],
+      ["page", nextPage > 1 ? nextPage : null],
+    ]);
   };
 
   return (
@@ -232,7 +212,12 @@ export default async function HoldingsPage({ searchParams }: PageProps) {
           </div>
           <div className="hero-actions">
             <button type="submit" className="btn-primary">Apply Filters</button>
-            <Link href={tabFilter === "active" ? "/holdings" : `/holdings?tab=${tabFilter}`} className="btn-ghost">Reset Filters</Link>
+            <Link
+              href={buildListingHref("/holdings", [["tab", tabFilter !== "active" ? tabFilter : null]])}
+              className="btn-ghost"
+            >
+              Reset Filters
+            </Link>
           </div>
         </form>
 

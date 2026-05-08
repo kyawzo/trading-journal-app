@@ -431,21 +431,40 @@ function calculateFeeAmount(record: string[], headers: string[], headerLookup: R
     return Math.abs(parsedTotal);
   }
 
-  let feeTotal = 0;
-  let hasExplicitFee = false;
+  const feeColumns = headers
+    .map((header, index) => ({
+      index,
+      normalizedHeader: normalizeHeader(header),
+      parsedValue: FEE_HEADERS.has(normalizeHeader(header)) ? parseNumber(record[index]) : null,
+    }))
+    .filter((column) => FEE_HEADERS.has(column.normalizedHeader));
 
-  headers.forEach((header, index) => {
-    if (!FEE_HEADERS.has(normalizeHeader(header))) {
-      return;
-    }
-    const parsed = parseNumber(record[index]);
-    if (parsed !== null) {
-      feeTotal += parsed;
-      hasExplicitFee = true;
-    }
-  });
+  const populatedFeeColumns = feeColumns.filter((column) => column.parsedValue !== null);
 
-  if (hasExplicitFee) {
+  if (populatedFeeColumns.length > 0) {
+    const feeTotal = populatedFeeColumns.reduce((sum, column) => sum + Math.abs(column.parsedValue ?? 0), 0);
+    const lastPopulatedFeeColumn = populatedFeeColumns[populatedFeeColumns.length - 1];
+    const precedingFeeTotal = populatedFeeColumns
+      .slice(0, -1)
+      .reduce((sum, column) => sum + Math.abs(column.parsedValue ?? 0), 0);
+    const hasTrailingFeeColumnsAfterLastValue = feeColumns.some((column) => (
+      column.index > (lastPopulatedFeeColumn?.index ?? -1) &&
+      !record[column.index]?.trim()
+    ));
+
+    // MooMoo sometimes omits trailing empty fee cells, which shifts the final total-fee value
+    // left into the last populated fee column (for example OCC Fees). When that shifted value
+    // exactly matches the sum of the preceding fee components, treat it as the total instead of
+    // double-counting it as both a component and the total.
+    if (
+      lastPopulatedFeeColumn &&
+      precedingFeeTotal > 0 &&
+      hasTrailingFeeColumnsAfterLastValue &&
+      Math.abs(Math.abs(lastPopulatedFeeColumn.parsedValue ?? 0) - precedingFeeTotal) <= 0.000001
+    ) {
+      return Math.abs(lastPopulatedFeeColumn.parsedValue ?? 0);
+    }
+
     return feeTotal;
   }
 
