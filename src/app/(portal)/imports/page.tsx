@@ -26,11 +26,26 @@ function getDefaultDateWindow() {
   };
 }
 
+function formatDateTimeDisplay(value: Date | null) {
+  if (!value) {
+    return "—";
+  }
+
+  return new Intl.DateTimeFormat("en-GB", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  }).format(value);
+}
+
 type PageProps = {
   searchParams: Promise<{
     page?: string;
     status?: string;
-    brokerAccountId?: string;
     q?: string;
     from?: string;
     to?: string;
@@ -39,12 +54,11 @@ type PageProps = {
 };
 
 export default async function ImportsPage({ searchParams }: PageProps) {
-  const { page, status, brokerAccountId, q, from, to, failedOnly } = await searchParams;
+  const { page, status, q, from, to, failedOnly } = await searchParams;
   const user = await requireCurrentUser("/imports");
   const workspace = await getWorkspacePreference();
   const currentPage = parsePositiveInt(page, 1);
   const statusFilter = status ?? "all";
-  const selectedBrokerAccountId = (brokerAccountId ?? "").trim();
   const fileQuery = (q ?? "").trim();
   const failedOnlyFilter = failedOnly === "1";
   const validStatuses = new Set(Object.values(ImportBatchStatus));
@@ -75,11 +89,8 @@ export default async function ImportsPage({ searchParams }: PageProps) {
   const fromDate = fromValue ? new Date(`${fromValue}T00:00:00`) : null;
   const toDate = toValue ? new Date(`${toValue}T23:59:59`) : null;
   const batchWhere: Prisma.ImportBatchWhereInput = {
-    brokerAccount: {
-      userId: user.id,
-    },
+    brokerAccountId: workspace.activeBrokerAccountId ?? "__no_active_broker__",
     ...(validStatusFilter !== "all" ? { batchStatus: validStatusFilter as ImportBatchStatus } : {}),
-    ...(selectedBrokerAccountId ? { brokerAccountId: selectedBrokerAccountId } : {}),
     ...(fileQuery ? { fileName: { contains: fileQuery, mode: "insensitive" } } : {}),
     ...(failedOnlyFilter ? { errorCount: { gt: 0 } } : {}),
     ...((fromDate || toDate)
@@ -225,7 +236,6 @@ export default async function ImportsPage({ searchParams }: PageProps) {
   const makeHref = (nextPage: number) => {
     return buildListingHref("/imports", [
       ["status", validStatusFilter !== "all" ? validStatusFilter : null],
-      ["brokerAccountId", selectedBrokerAccountId || null],
       ["q", fileQuery || null],
       ["from", fromValue],
       ["to", toValue],
@@ -242,7 +252,9 @@ export default async function ImportsPage({ searchParams }: PageProps) {
     processedCount: batch.processedCount,
     errorCount: batch.errorCount,
     importedAt: batch.importedAt.toISOString(),
+    importedAtDisplay: formatDateTimeDisplay(batch.importedAt),
     completedAt: batch.completedAt?.toISOString() ?? null,
+    completedAtDisplay: formatDateTimeDisplay(batch.completedAt),
     brokerName: batch.brokerAccount?.broker?.brokerName ?? "Broker",
     accountName: batch.brokerAccount?.accountName ?? "Account",
     failures: failuresByBatch.get(batch.id) ?? [],
@@ -279,22 +291,13 @@ export default async function ImportsPage({ searchParams }: PageProps) {
       )}
 
       <section className="panel section-stack">
-        <div className="stats-grid-3">
+        <div className="stats-grid-2">
           <label className="field-stack">
             <span className="field-label">Status</span>
             <select name="status" form="imports-filter-form" defaultValue={validStatusFilter} className="input-field">
               <option value="all">All Statuses</option>
               {Object.values(ImportBatchStatus).map((value) => (
                 <option key={value} value={value}>{value}</option>
-              ))}
-            </select>
-          </label>
-          <label className="field-stack">
-            <span className="field-label">Broker Account</span>
-            <select name="brokerAccountId" form="imports-filter-form" defaultValue={selectedBrokerAccountId} className="input-field">
-              <option value="">All Accounts</option>
-              {brokerOptions.map((option) => (
-                <option key={option.id} value={option.id}>{option.label}</option>
               ))}
             </select>
           </label>
