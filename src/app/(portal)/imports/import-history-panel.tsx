@@ -12,7 +12,9 @@ type ImportBatchItem = {
   processedCount: number | null;
   errorCount: number | null;
   importedAt: string;
+  importedAtDisplay: string;
   completedAt: string | null;
+  completedAtDisplay: string;
   brokerName: string;
   accountName: string;
   failures: Array<{
@@ -42,14 +44,6 @@ type ImportHistoryPanelProps = {
     positionsCreated: number;
     holdingsTouched: number;
   };
-};
-
-function formatDateTime(value: string | null) {
-  if (!value) {
-    return "—";
-  }
-
-  return new Date(value).toLocaleString();
 }
 
 export function ImportHistoryPanel({ batches, overview }: ImportHistoryPanelProps) {
@@ -201,11 +195,11 @@ export function ImportHistoryPanel({ batches, overview }: ImportHistoryPanelProp
                   </div>
                   <div className="meta-item">
                     <p className="meta-label">Started</p>
-                    <p className="meta-value">{formatDateTime(batch.importedAt)}</p>
+                    <p className="meta-value">{batch.importedAtDisplay}</p>
                   </div>
                   <div className="meta-item">
                     <p className="meta-label">Completed</p>
-                    <p className="meta-value">{formatDateTime(batch.completedAt)}</p>
+                    <p className="meta-value">{batch.completedAtDisplay}</p>
                   </div>
                 </div>
 
