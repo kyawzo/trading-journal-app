@@ -33,7 +33,7 @@ type ImportMoomooCsvInput = {
   csvText: string;
 };
 
-type ImportMoomooCsvResult = {
+export type ImportMoomooCsvResult = {
   importBatchId: string;
   fileHash: string;
   summary: {

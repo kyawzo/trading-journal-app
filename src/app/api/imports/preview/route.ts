@@ -1,8 +1,7 @@
-import { BrokerCode } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { getCurrentUser, redirectToLoginResponse } from "@/src/lib/auth";
 import { validateImportCurrencyMatch } from "@/src/lib/import-currency";
-import { parseMoomooCsvPreview } from "@/src/lib/moomoo-import/parser";
+import { getBrokerImportAdapter, previewBrokerCsv } from "@/src/lib/imports/broker-dispatch";
 import { prisma } from "@/src/lib/prisma";
 
 const MAX_CSV_BYTES = 100 * 1024 * 1024;
@@ -61,12 +60,17 @@ export async function POST(req: Request) {
     return errorResponse("Broker account not found.", 404);
   }
 
-  if (brokerAccount.broker.brokerCode !== BrokerCode.MOOMOO) {
-    return errorResponse("Only MooMoo CSV import is supported right now. Other brokers will be added in upcoming phases.");
+  const adapter = getBrokerImportAdapter(brokerAccount.broker.brokerCode);
+  if (!adapter?.previewImplemented) {
+    return errorResponse(`${adapter?.displayName ?? brokerAccount.broker.brokerName} CSV import is not supported yet. ${adapter?.previewDescription ?? "Support will be added in an upcoming phase."}`);
   }
 
   const csvText = await file.text();
-  const preview = parseMoomooCsvPreview(csvText);
+  const preview = await previewBrokerCsv({
+    brokerAccount,
+    fileName: file.name,
+    csvText,
+  });
 
   if (preview.missingRequiredColumns.length > 0) {
     return NextResponse.json({
@@ -116,6 +120,7 @@ export async function POST(req: Request) {
       brokerName: brokerAccount.broker.brokerName,
       brokerCode: brokerAccount.broker.brokerCode,
       baseCurrency: brokerAccount.baseCurrency,
+      importPreviewDescription: adapter.previewDescription,
     },
     fileName: file.name,
     ...preview,

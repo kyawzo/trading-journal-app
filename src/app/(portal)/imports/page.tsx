@@ -2,6 +2,7 @@ import { ImportBatchStatus, Prisma } from "@prisma/client";
 import Link from "next/link";
 import { PaginationControls } from "@/src/app/components/pagination-controls";
 import { requireCurrentUser } from "@/src/lib/auth";
+import { getBrokerImportAdapter } from "@/src/lib/imports/broker-dispatch";
 import { buildListingHref, paginationMeta, parsePositiveInt } from "@/src/lib/listing-pagination";
 import { prisma } from "@/src/lib/prisma";
 import { formatActiveBrokerLabel, getWorkspacePreference } from "@/src/lib/workspace-preference";
@@ -80,9 +81,14 @@ export default async function ImportsPage({ searchParams }: PageProps) {
   const brokerOptions = brokerAccounts.map((account) => ({
     id: account.id,
     label: `${account.broker.brokerName} · ${account.accountName} · ${account.baseCurrency}`,
+    brokerCode: account.broker.brokerCode,
+    brokerName: account.broker.brokerName,
+    previewDescription: getBrokerImportAdapter(account.broker.brokerCode)?.previewDescription
+      ?? `Preview validates the selected ${account.broker.brokerName} CSV before any trade writes happen.`,
+    commitSupported: getBrokerImportAdapter(account.broker.brokerCode)?.commitImplemented ?? false,
   }));
 
-  const defaultBrokerAccountId = workspace.activeBrokerAccountId ?? brokerOptions[0]?.id ?? "";
+  const activeBrokerOption = brokerOptions.find((account) => account.id === workspace.activeBrokerAccountId) ?? null;
   const defaultWindow = getDefaultDateWindow();
   const fromValue = from === undefined ? defaultWindow.from : from;
   const toValue = to === undefined ? defaultWindow.to : to;
@@ -270,7 +276,7 @@ export default async function ImportsPage({ searchParams }: PageProps) {
             <p className="eyebrow">Imports</p>
             <h2 className="page-title">Bring broker trade history into your journal safely.</h2>
             <p className="page-subtitle">
-              Phase 1 now supports MooMoo CSV preview and validation with US-only + Filled-only checks, so you can verify import quality before we write holdings and positions.
+              Preview broker CSV files, validate currency and structure, then commit only when the trade data looks safe enough to write into holdings and positions.
             </p>
             <div className="item-row mt-4">
               <span className="chip-neutral">Active Broker: {formatActiveBrokerLabel(workspace.activeBrokerAccount)}</span>
@@ -283,10 +289,13 @@ export default async function ImportsPage({ searchParams }: PageProps) {
         <section className="empty-state">
           No active broker account found. Create a broker account first, then return to Imports to upload your CSV.
         </section>
+      ) : !activeBrokerOption ? (
+        <section className="empty-state">
+          Select an active broker account from the top menu first. Imports always follow the current active broker, so MooMoo accounts import MooMoo CSV files and Tiger accounts import Tiger CSV files.
+        </section>
       ) : (
         <ImportPreviewPanel
-          brokerAccounts={brokerOptions}
-          defaultBrokerAccountId={defaultBrokerAccountId}
+          brokerAccount={activeBrokerOption}
         />
       )}
 
