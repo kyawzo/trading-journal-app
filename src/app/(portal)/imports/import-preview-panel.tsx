@@ -5,11 +5,14 @@ import { useEffect, useState } from "react";
 type BrokerAccountOption = {
   id: string;
   label: string;
+  brokerCode: string;
+  brokerName: string;
+  previewDescription: string;
+  commitSupported: boolean;
 };
 
 type ImportPreviewPanelProps = {
-  brokerAccounts: BrokerAccountOption[];
-  defaultBrokerAccountId: string;
+  brokerAccount: BrokerAccountOption;
 };
 
 type PreviewResponse = {
@@ -78,10 +81,8 @@ function formatMaybeNumber(value: number | null) {
 }
 
 export function ImportPreviewPanel({
-  brokerAccounts,
-  defaultBrokerAccountId,
+  brokerAccount,
 }: ImportPreviewPanelProps) {
-  const [selectedBrokerAccountId, setSelectedBrokerAccountId] = useState(defaultBrokerAccountId);
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<PreviewResponse | null>(null);
   const [commitResult, setCommitResult] = useState<CommitResponse | null>(null);
@@ -92,7 +93,8 @@ export function ImportPreviewPanel({
   } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isCommitting, setIsCommitting] = useState(false);
-  const selectedBrokerLabel = brokerAccounts.find((account) => account.id === selectedBrokerAccountId)?.label ?? "Unknown account";
+  const selectedBroker = brokerAccount;
+  const selectedBrokerLabel = selectedBroker.label;
   const selectedBrokerCurrency = selectedBrokerLabel.split(" · ").at(-1) ?? "N/A";
 
   useEffect(() => {
@@ -118,7 +120,7 @@ export function ImportPreviewPanel({
     }
 
     const formData = new FormData();
-    formData.set("brokerAccountId", selectedBrokerAccountId);
+    formData.set("brokerAccountId", selectedBroker.id);
     formData.set("file", file);
 
     try {
@@ -172,7 +174,7 @@ export function ImportPreviewPanel({
     }
 
     const formData = new FormData();
-    formData.set("brokerAccountId", selectedBrokerAccountId);
+    formData.set("brokerAccountId", selectedBroker.id);
     formData.set("file", file);
 
     try {
@@ -241,28 +243,18 @@ export function ImportPreviewPanel({
 
       <div>
         <h3 className="section-heading">Upload CSV Preview</h3>
-        <p className="section-copy">This preview validates MooMoo CSV structure and tells us what would be imported before any trade writes happen.</p>
+        <p className="section-copy">{selectedBroker?.previewDescription ?? "This preview validates the selected broker CSV and shows what would be imported before any trade writes happen."}</p>
       </div>
 
       <form className="section-stack" onSubmit={handlePreviewSubmit}>
         <div className="grid gap-4 md:grid-cols-2">
           <label className="field-stack">
             <span className="field-label">Broker Account</span>
-            <select
-              className="select-field"
-              value={selectedBrokerAccountId}
-              onChange={(event) => setSelectedBrokerAccountId(event.target.value)}
-            >
-              {brokerAccounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.label}
-                </option>
-              ))}
-            </select>
+            <div className="input-field">{selectedBroker.label}</div>
           </label>
 
           <label className="field-stack">
-            <span className="field-label">MooMoo CSV File</span>
+            <span className="field-label">{selectedBroker?.brokerName ?? "Broker"} CSV File</span>
             <input
               type="file"
               accept=".csv,text/csv"
@@ -276,15 +268,25 @@ export function ImportPreviewPanel({
           <button type="submit" className="btn-primary" disabled={isSubmitting}>
             {isSubmitting ? "Previewing..." : "Preview Import"}
           </button>
-          {result && result.summary.processableRows > 0 ? (
+          {result && result.summary.processableRows > 0 && selectedBroker.commitSupported ? (
             <button type="button" className="btn-secondary" onClick={handleCommitImport} disabled={isCommitting}>
               {isCommitting ? "Importing..." : "Run Import"}
             </button>
           ) : null}
         </div>
         <p className="note" style={{ color: "var(--danger, #b91c1c)", fontWeight: 600 }}>
-          Selected account currency: <code>{selectedBrokerCurrency}</code>. Import is allowed only when CSV currency matches this account.
+          Selected account: <code>{selectedBroker?.brokerCode ?? "N/A"}</code> / currency <code>{selectedBrokerCurrency}</code>. Import is allowed only when CSV currency matches this account.
         </p>
+        {selectedBroker.brokerCode === "TIGER" ? (
+          <p className="note">
+            Current Tiger import scope: stock holdings, single-leg options, basic same-timestamp option bundles, and basic same-timestamp rolls. Vertical spreads, iron condors, and clean full-roll groups are supported first. More advanced custom shapes still need later phases.
+          </p>
+        ) : null}
+        {!selectedBroker.commitSupported ? (
+          <p className="note">
+            Preview is available for this broker, but commit/import is still locked until the importer phases are completed.
+          </p>
+        ) : null}
       </form>
 
       {commitResult ? (

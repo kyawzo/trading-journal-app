@@ -116,6 +116,7 @@ Key idea: rollback is safety-first. If the system cannot prove a clean undo path
 Design references:
 
 - [IMPORT_PLAN.md](./IMPORT_PLAN.md)
+- [TIGER_IMPORT_PLAN.md](./TIGER_IMPORT_PLAN.md)
 - [IMPORT_ROLLBACK_PLAN.md](./IMPORT_ROLLBACK_PLAN.md)
 - [PNL_SNAPSHOT_PLAN.md](./PNL_SNAPSHOT_PLAN.md)
 - [CORPORATE_ACTION_SPLIT_PLAN.md](./CORPORATE_ACTION_SPLIT_PLAN.md)
