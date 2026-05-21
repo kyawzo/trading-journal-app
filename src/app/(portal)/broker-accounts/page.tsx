@@ -68,7 +68,9 @@ export default async function BrokerAccountsPage({ searchParams }: PageProps) {
   const accountCards = brokerAccounts.map((account) => {
     const accountHoldings = holdings.filter((holding) => holding.brokerAccountId === account.id);
     const accountEntries = ledgerEntries.filter((entry) => entry.brokerAccountId === account.id);
-    const activePositions = account.positions.filter((position) => position.currentStatus !== "CLOSED").length;
+    const activePositions = account.positions.filter((position) => (
+      position.currentStatus === "OPEN" || position.currentStatus === "PARTIALLY_CLOSED"
+    )).length;
     const activeHoldings = accountHoldings.filter((holding) => Number(holding.remainingQuantity.toString()) > 0).length;
     const currentBalance = accountEntries.reduce((sum, entry) => sum + Number(entry.amount.toString()), 0);
     const currency = accountEntries[0]?.currency ?? account.baseCurrency;
